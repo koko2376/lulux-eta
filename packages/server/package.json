@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@koa/bodyparser": "^5.1.2",
-    "@koa/router": "^13.1.0",
+    "@koa/router": "^15.7.0",
     "cross-spawn": "^7.0.6",
     "imapflow": "^2.5.8",
     "koa": "^2.15.4",
@@ -28,7 +28,7 @@
   "devDependencies": {
     "@types/cross-spawn": "^6.0.6",
     "@types/koa": "^2.15.0",
-    "@types/koa__router": "^12.0.4",
+    "@types/koa__router": "^15.0.0",
     "@types/mailparser": "^3.9.0",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
