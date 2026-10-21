@@ -19,7 +19,7 @@
     "dist:mac": "npm run predist && electron-builder --config electron-builder.yml --mac dmg zip --arm64 --x64 --publish never"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "electron": "44.9.1",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.2",
