@@ -1,0 +1,16 @@
+/*
+ * 列表密度（设置 → 外观 → 列表密度）：html[data-density] + --density 系数（紧凑 0.72 / 标准 1 / 宽松 1.3）。
+ * 只改列表行的上下内边距，不动内容页。标准密度时不加任何规则，保持原样。
+ * 各页面自己的列表（邮箱 / 报价 / 会话）在各自样式里用 calc(… * var(--density, 1))。
+ */
+:root[data-density] .data-table td {
+  padding-top: calc(11px * var(--density, 1));
+  padding-bottom: calc(11px * var(--density, 1));
+}
+:root[data-density] .side-body .nav-row {
+  height: calc(38px * (0.5 + var(--density, 1) / 2));
+}
+:root[data-density] .session-item {
+  padding-top: calc(13px * var(--density, 1));
+  padding-bottom: calc(13px * var(--density, 1));
+}

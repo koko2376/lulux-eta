@@ -1,0 +1,43 @@
+{
+  "name": "@lulux/server",
+  "version": "0.1.1",
+  "private": true,
+  "author": "koko",
+  "license": "BSL-1.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@koa/bodyparser": "^5.1.2",
+    "@koa/router": "^13.1.0",
+    "cross-spawn": "^7.0.6",
+    "imapflow": "^2.5.8",
+    "koa": "^2.15.4",
+    "mailparser": "^3.10.0",
+    "nodemailer": "^10.1.7",
+    "pdfkit": "^0.20.2",
+    "undici": "^7.30.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/koa": "^2.15.0",
+    "@types/koa__router": "^12.0.4",
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pdfkit": "^0.17.6",
+    "@types/smtp-server": "^3.5.13",
+    "hoodiecrow-imap": "^3.3.1",
+    "smtp-server": "^3.20.2",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.2",
+    "vitest": "^5.0.5"
+  }
+}
