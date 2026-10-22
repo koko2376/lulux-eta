@@ -1,0 +1,44 @@
+name: ✨ 功能建议 / Feature request
+description: 提出新功能或改进 / Suggest a feature or improvement
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        邮箱收发、团队与权限、远程服务器登录已在路线图中（“即将推出”），欢迎补充你的具体场景。
+        Mailbox, teams & permissions and remote sign-in are already on the roadmap — your concrete use cases are welcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题 / Problem
+      description: 你在外贸工作中遇到了什么困难？/ What problem do you face?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的方案 / Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案 / Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: 模块 / Area
+      options:
+        - Agent / 内核 / Kernels
+        - 客户 / Customers
+        - 报价 / Quotes
+        - 邮箱 / Mailbox
+        - 团队与权限 / Teams
+        - 数据与安全 / Data & security
+        - 其他 / Other
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: 参与 / Contribution
+      options:
+        - label: 我愿意提交 PR 实现它（需 DCO 签署）/ I'd like to submit a PR (DCO sign-off required)

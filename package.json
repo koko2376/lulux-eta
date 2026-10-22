@@ -1,0 +1,32 @@
+{
+  "name": "lulux-eta",
+  "version": "0.1.1",
+  "private": true,
+  "description": "LULUX ETA — a foreign-trade AI agent workspace that runs locally on your desktop or on your own team server",
+  "author": "koko",
+  "license": "BSL-1.1",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev -w @lulux/server",
+    "dev:client": "npm run dev -w @lulux/client",
+    "dev:desktop": "npm run build -w @lulux/server && npm run build -w @lulux/client && npm run dev -w @lulux/desktop",
+    "build": "npm run build -w @lulux/server && npm run build -w @lulux/client && npm run build -w @lulux/desktop",
+    "start": "npm run start -w @lulux/server",
+    "dist": "npm run build && npm run dist -w @lulux/desktop",
+    "test:server": "npm run test -w @lulux/server",
+    "dist:win": "npm run build -w @lulux/server && npm run build -w @lulux/client && npm run dist:win -w @lulux/desktop",
+    "dist:linux": "npm run build -w @lulux/server && npm run build -w @lulux/client && npm run dist:linux -w @lulux/desktop",
+    "dist:mac": "npm run build -w @lulux/server && npm run build -w @lulux/client && npm run dist:mac -w @lulux/desktop",
+    "release": "bash scripts/build-release.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "~5.7.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

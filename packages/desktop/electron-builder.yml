@@ -1,0 +1,118 @@
+appId: ai.lulux.eta
+productName: LULUX ETA
+copyright: Copyright © 2026 koko
+# 产物文件名统一：LULUX-ETA-<版本>-<平台>-<架构>.<扩展名>
+artifactName: "LULUX-ETA-${version}-${os}-${arch}.${ext}"
+
+# 自动更新源（electron-updater · GitHub Releases），docs/AUTO-UPDATE.md。
+# 用户也可以在 设置 → 关于 → “更新源地址” 填一个 generic 源（公司镜像 / 国内 CDN）覆盖这里的 GitHub 源。
+# 仓库只在这里配置一处：github.com/koko2376/lulux-eta。
+# 不改文件也可以：构建时设置 LULUX_UPDATE_REPO=owner/repo（scripts/build-release.sh 与 .github/workflows/release.yml
+# 会传 -c.publish.owner/-c.publish.repo；Release 工作流默认用当前 GitHub 仓库），或在用户机器上以同名环境变量运行时覆盖。
+# 打包会据此生成 <resources>/app-update.yml 与 latest*.yml（Windows NSIS → latest.yml；--publish never 也会生成；
+# 上传由 Release 工作流完成）。releaseType: release —— 客户端只会检测到已发布（非 draft）的 Release。
+publish:
+  provider: github
+  owner: koko2376
+  repo: lulux-eta
+  releaseType: release
+
+directories:
+  output: release
+  buildResources: build
+
+# 桌面壳没有原生依赖；避免 electron-builder 在 workspace 里执行 npm install
+npmRebuild: false
+# 打包后不用 asar 解包；服务端与 npm 都在 extraResources 里，作为普通文件随包
+asar: true
+
+# 非 Windows 主机交叉打 Windows 包、没有 wine 时由 scripts/after-pack.cjs 用 resedit 写入图标与版本信息
+afterPack: scripts/after-pack.cjs
+
+files:
+  - "dist/**/*"
+  - "!dist/**/*.map"
+  - "package.json"
+
+extraResources:
+  # 服务端单文件（esbuild）+ pdfkit 运行时依赖；由 Electron 自带 Node（ELECTRON_RUN_AS_NODE=1）运行
+  - from: "resources/server"
+    to: "server"
+  - from: "../../packages/client/dist"
+    to: "client"
+  # 内置 skill（只读；服务端经 LULUX_BUILTIN_SKILLS_DIR 找到，启动时同步到数据目录）
+  - from: "../../packages/server/skills"
+    to: "skills"
+  # 随包 npm（安装第三方内核用，用户机器无需安装 Node.js / npm）；经 ELECTRON_RUN_AS_NODE 运行 npm-cli.js
+  - from: "../../node_modules/npm"
+    to: "npm"
+    filter:
+      - "**/*"
+      - "!man/**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "!**/*.map"
+      - "!**/.github/**"
+      - "!**/test/**"
+      - "!**/tests/**"
+  - from: "../../LICENSE"
+    to: "LICENSE"
+  # 托盘图标（主进程 tray.ts 读取 <resources>/tray-icon.png）
+  - from: "build/icon.png"
+    to: "tray-icon.png"
+
+win:
+  icon: icon.ico
+  # dist:win 显式指定 nsis x64；不带参数时与旧行为一致（安装版 + 免安装版）
+  target:
+    - nsis
+    - portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: LULUX ETA
+  # 卸载时不删除数据目录（%APPDATA%\LULUX ETA\data），避免误删客户数据；手动删除方法见 docs/INSTALL.md
+  deleteAppDataOnUninstall: false
+  license: "../../LICENSE"
+  # 安装向导只带简体中文与英文（按系统语言选择），也避免交叉编译时新版 NSIS 对其他语言缺字串的告警
+  installerLanguages: [zh_CN, en_US]
+  language: "2052"
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  artifactName: "LULUX-ETA-${version}-win-${arch}-setup.${ext}"
+
+portable:
+  artifactName: "LULUX-ETA-${version}-win-${arch}-portable.${ext}"
+
+mac:
+  icon: icon.icns
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  # 没有 Developer ID 证书时 CSC_IDENTITY_AUTO_DISCOVERY=false 产出未签名包（打开方法见 docs/INSTALL.md）
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  artifactName: "LULUX-ETA-${version}-mac-${arch}.${ext}"
+
+linux:
+  icon: icons
+  category: Office
+  executableName: lulux-eta
+  synopsis: Foreign-trade AI agent workspace, local desktop or team server
+  target:
+    - AppImage
+
+appImage:
+  artifactName: "LULUX-ETA-${version}-linux-${arch}.${ext}"

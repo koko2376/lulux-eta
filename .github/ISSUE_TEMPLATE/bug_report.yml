@@ -1,0 +1,80 @@
+name: 🐛 Bug 报告 / Bug report
+description: 报告一个可复现的问题 / Report a reproducible problem
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **安全漏洞请不要在这里提交**，请按 [SECURITY.md](../blob/main/SECURITY.md) 私密报告。
+        **Do not report security vulnerabilities here** — see [SECURITY.md](../blob/main/SECURITY.md).
+        请勿粘贴 API Key、客户资料等敏感信息。Never paste API keys or customer data.
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      placeholder: v0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台 / Platform
+      multiple: true
+      options:
+        - Windows 桌面端 / Windows desktop
+        - macOS 桌面端 / macOS desktop
+        - Linux 桌面端 / Linux desktop
+        - 浏览器开发态 / Browser dev mode
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 模块 / Area
+      options:
+        - Agent 对话 / Chat
+        - 内核管理 / Kernels
+        - 模型与密钥 / Providers
+        - 客户与导入 / Customers & import
+        - 报价与模板 / Quotes & templates
+        - 询盘规则 / Inquiry rules
+        - 工作台 / Workbench
+        - 数据与备份 / Backup
+        - MCP 工具 / MCP
+        - 安装与更新 / Install & update
+        - 其他 / Other
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述 / What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 / Expected behavior
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与截图 / Logs & screenshots
+      description: 请先删除密钥与个人信息 / Remove secrets and personal data first
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认 / Confirmation
+      options:
+        - label: 我已搜索过现有 Issue / I searched existing issues
+          required: true
+        - label: 内容不含密钥或个人 / 客户数据 / No secrets or personal/customer data included
+          required: true

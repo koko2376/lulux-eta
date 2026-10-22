@@ -1,0 +1,497 @@
+/*
+ * 登录 / 加入团队 / 解锁页样式。
+ * 没有卡片：56px 顶栏（拖拽区）+ 居中 396px 一列；52px 圆形标志、字距拉开的品牌名、副标题；
+ * 胶囊分段开关；42px 圆角输入框；黑色主按钮、描边次按钮；底部小字说明。
+ * 颜色用主题 token（深色主题跟着变）。全部挂在 .auth-orig 下，不影响全局样式。
+ */
+.auth-orig.ao-page {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--window);
+  color: var(--text);
+}
+.auth-orig .ao-topbar {
+  height: 56px;
+  flex: none;
+  -webkit-app-region: drag;
+}
+/* 右上角语言选择：避开 Windows 自绘窗口按钮（--wc-width），本身不是拖拽区 */
+.auth-orig .ao-topbar {
+  position: relative;
+}
+.auth-orig .ao-lang {
+  position: absolute;
+  top: 12px;
+  right: calc(var(--wc-width, 0px) + 16px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color 0.15s, border-color 0.15s;
+}
+.auth-orig .ao-lang:hover,
+.auth-orig .ao-lang:focus-within {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.auth-orig .ao-lang:has(select:focus-visible) {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.auth-orig .ao-lang svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.auth-orig .ao-lang-globe {
+  width: 15px;
+  height: 15px;
+}
+.auth-orig .ao-lang-caret {
+  width: 13px;
+  height: 13px;
+  margin-left: -1px;
+}
+/* 原生下拉盖在整个胶囊上（透明），保留系统键盘 / 读屏行为 */
+.auth-orig .ao-lang select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+.auth-orig .ao-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40px 60px;
+}
+.auth-orig .ao-box {
+  width: min(396px, 100%);
+}
+
+/* 品牌 */
+.auth-orig .ao-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+.auth-orig .ao-brand img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: block;
+}
+.auth-orig .ao-brand b {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+.auth-orig .ao-brand span {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  margin-top: -6px;
+}
+
+/* 分段开关 */
+.auth-orig .ao-seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+.auth-orig .ao-seg button {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.auth-orig .ao-seg button.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(17, 17, 19, 0.1);
+}
+:root[data-theme='dark'] .auth-orig .ao-seg button.on {
+  background: var(--surface-active);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.auth-orig .ao-seg button:focus-visible,
+.auth-orig .ao-primary:focus-visible,
+.auth-orig .ao-alt:focus-visible,
+.auth-orig .ao-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 表单 */
+.auth-orig .ao-form h1 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+.auth-orig .ao-lead {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.auth-orig .ao-lead code {
+  font-family: inherit;
+  background: var(--surface-muted);
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+}
+.auth-orig .ao-field {
+  display: block;
+  margin-bottom: 10px;
+}
+.auth-orig .ao-field > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.auth-orig .ao-field input {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  outline: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.auth-orig .ao-field input:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.auth-orig .ao-field input::placeholder {
+  color: var(--icon-muted);
+}
+/* 本机模式没有账号：禁用的输入框只把底色压一点，版式不变 */
+.auth-orig .ao-field input:disabled {
+  background: var(--surface-soft);
+  cursor: not-allowed;
+}
+.auth-orig .ao-field input.invalid {
+  border-color: var(--danger);
+}
+.auth-orig .ao-field input.invalid:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.auth-orig .ao-field input.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.auth-orig .ao-field-hint {
+  display: block;
+  margin: -4px 0 6px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.auth-orig .ao-error {
+  margin: -4px 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+.auth-orig .ao-error:empty {
+  display: none;
+}
+.auth-orig .ao-form-error {
+  margin: 0 0 10px;
+}
+.auth-orig .ao-note,
+.auth-orig .ao-ok {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.auth-orig .ao-ok {
+  margin: 10px 0 0;
+  text-align: center;
+  color: var(--good);
+}
+
+/* 勾选框 */
+.auth-orig .ao-check {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 18px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: fit-content;
+}
+.auth-orig .ao-box-sq {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+}
+.auth-orig .ao-box-sq.on {
+  background: var(--text);
+  border-color: var(--text);
+}
+.auth-orig .ao-box-sq svg {
+  width: 10px;
+  height: 10px;
+  stroke: var(--on-strong);
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  visibility: hidden;
+}
+.auth-orig .ao-box-sq.on svg {
+  visibility: visible;
+}
+.auth-orig .ao-check input:focus-visible + .ao-box-sq {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 按钮 */
+.auth-orig .ao-primary {
+  width: 100%;
+  height: 42px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--bubble-user);
+  color: var(--on-strong);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-orig .ao-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.auth-orig .ao-alt {
+  width: 100%;
+  height: 42px;
+  margin-top: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.auth-orig .ao-alt:hover:not(:disabled) {
+  background: var(--surface-soft);
+}
+.auth-orig .ao-primary:disabled,
+.auth-orig .ao-alt:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 底部说明 */
+.auth-orig .ao-foot {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.auth-orig .ao-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: none;
+}
+.auth-orig .ao-link:hover {
+  color: var(--text);
+}
+.auth-orig .ao-hint {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  text-align: center;
+  line-height: 1.7;
+}
+.auth-orig .ao-more {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+/* 忘记密码 */
+.auth-orig .ao-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -2px 0 6px;
+  font-size: 12px;
+}
+.auth-orig .ao-more p {
+  margin: 0 0 8px;
+}
+.auth-orig .ao-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auth-orig .ao-path code {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  user-select: all;
+}
+
+/*
+ * 进场动画（每次打开登录页都播放）：标志从小到大淡入并转正，品牌名字距收拢，
+ * 分段开关与表单逐行升起；登录成功后整页轻微放大淡出（.ao-leaving）再进入工作台。
+ * 减少动画（系统 prefers-reduced-motion 或 设置 → 外观 → 减少动画）时只保留短暂淡入，不位移。
+ */
+@keyframes ao-logo-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.55) rotate(-24deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ao-title-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.45em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 0.1em;
+  }
+}
+@keyframes ao-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ao-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ao-leave {
+  to {
+    opacity: 0;
+    transform: scale(1.03);
+    filter: blur(2px);
+  }
+}
+.auth-orig.ao-intro .ao-brand img {
+  animation: ao-logo-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.auth-orig.ao-intro .ao-brand b {
+  animation: ao-title-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+.auth-orig.ao-intro .ao-brand span {
+  animation: ao-rise 0.5s ease-out 0.3s both;
+}
+.auth-orig.ao-intro .ao-seg {
+  animation: ao-rise 0.5s ease-out 0.4s both;
+}
+.auth-orig.ao-intro .ao-form > * {
+  animation: ao-rise 0.45s ease-out both;
+  animation-delay: 0.5s;
+}
+.auth-orig.ao-intro .ao-form > *:nth-child(2) {
+  animation-delay: 0.55s;
+}
+.auth-orig.ao-intro .ao-form > *:nth-child(3) {
+  animation-delay: 0.6s;
+}
+.auth-orig.ao-intro .ao-form > *:nth-child(4) {
+  animation-delay: 0.65s;
+}
+.auth-orig.ao-intro .ao-form > *:nth-child(5) {
+  animation-delay: 0.7s;
+}
+.auth-orig.ao-intro .ao-form > *:nth-child(n + 6) {
+  animation-delay: 0.75s;
+}
+.auth-orig.ao-leaving .ao-box {
+  animation: ao-leave 0.36s ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-orig.ao-intro .ao-brand img,
+  .auth-orig.ao-intro .ao-brand b,
+  .auth-orig.ao-intro .ao-brand span,
+  .auth-orig.ao-intro .ao-seg,
+  .auth-orig.ao-intro .ao-form > * {
+    animation: ao-fade 0.3s ease-out both;
+    animation-delay: 0s;
+  }
+}
+/* 设置 → 外观 → 减少动画：全局会把 animation 关成 none，这里保留一个不位移的淡入（选择器更具体，优先） */
+html.reduce-motion .auth-orig.ao-intro .ao-box {
+  animation: ao-fade 0.3s ease-out both !important;
+}
