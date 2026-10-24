@@ -1,0 +1,16 @@
+# gitleaks 配置：沿用默认规则，只放行测试夹具里的示例假凭据。
+# 新增放行项请写具体的假值，不要按整类规则或整个目录放行。
+title = "LULUX ETA gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "测试 / 端到端夹具中的示例假凭据（非真实密钥），只按具体假值放行"
+# 出处：packages/client/e2e/*.spec.ts、seed-demo.mjs（演示密码）；packages/server/test/builtin-kernel|email|memory.test.ts
+regexes = [
+  '''^Owner-pass-2026$''',
+  '''^tvly-secret-123456$''',
+  '''^sk-test-1234567890$''',
+  '''^ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$''',
+]

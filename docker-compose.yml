@@ -1,0 +1,49 @@
+# LULUX ETA 团队服务器。用法见 docs/deploy-server.md
+#   cp deploy/env.example .env   # 填 LULUX_PUBLIC_ORIGIN
+#   docker compose up -d --build                 # 只起服务（自己的 Nginx/Caddy 反代到 127.0.0.1:51789）
+#   docker compose --profile caddy up -d --build # 同时起内置 Caddy（自动 HTTPS）
+services:
+  lulux:
+    build: .
+    image: lulux-eta-server:local
+    restart: unless-stopped
+    environment:
+      LULUX_PUBLIC_ORIGIN: ${LULUX_PUBLIC_ORIGIN:?请在 .env 里设置 LULUX_PUBLIC_ORIGIN，例如 https://lulux.example.com}
+      LULUX_TRUST_PROXY: "1"
+      LULUX_SESSION_IDLE_HOURS: ${LULUX_SESSION_IDLE_HOURS:-168}
+      LULUX_SESSION_MAX_DAYS: ${LULUX_SESSION_MAX_DAYS:-30}
+      # 可选：64 位 hex 主密钥（加密邮箱密码 / API Key）。不设则在数据卷里生成 master.key，备份时务必一起备份。
+      LULUX_MASTER_KEY: ${LULUX_MASTER_KEY:-}
+    volumes:
+      - lulux-data:/data
+    # 只绑定本机回环：必须经 TLS 反向代理对外
+    ports:
+      - "127.0.0.1:51789:51789"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  caddy:
+    image: caddy:2
+    profiles: ["caddy"]
+    restart: unless-stopped
+    depends_on:
+      - lulux
+    environment:
+      LULUX_DOMAIN: ${LULUX_DOMAIN:?使用 caddy profile 时请设置 LULUX_DOMAIN，例如 lulux.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  lulux-data:
+  caddy-data:
+  caddy-config:

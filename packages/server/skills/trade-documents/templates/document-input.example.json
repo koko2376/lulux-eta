@@ -1,0 +1,26 @@
+{
+  "number": "LX20261020-01",
+  "date": "2026-10-20",
+  "contractNo": "SC-2026-118",
+  "poNo": "PO-55821",
+  "lcNo": null,
+  "currency": "USD",
+  "incoterm": "FOB",
+  "incotermPlace": "Ningbo, China",
+  "from": "Ningbo, China",
+  "to": "Hamburg, Germany",
+  "paymentTerms": "30% T/T deposit, 70% T/T against copy of B/L",
+  "leadTime": "30 days after receipt of deposit",
+  "validity": "15 days",
+  "packing": "Export standard carton, 4 pcs/ctn",
+  "origin": "CHINA",
+  "marks": "LUMEN/HAMBURG/C/NO.1-500",
+  "seller": { "name": "Ningbo Example Lighting Co., Ltd.", "address": "No. 1 Example Road, Yinzhou, Ningbo, China", "tel": "+86 574 0000 0000", "email": "sales@example.com" },
+  "buyer": { "name": "Example GmbH", "address": "Musterstrasse 1, 20095 Hamburg, Germany", "contact": "Mr. Max Muster", "tel": "+49 40 000000", "taxId": "DE000000000" },
+  "bank": { "name": "Bank of China Ningbo Branch", "address": "Ningbo, China", "swift": "BKCHCNBJ92A", "accountName": "Ningbo Example Lighting Co., Ltd.", "account": "000000000000" },
+  "items": [
+    { "name": "LED Panel Light", "spec": "600x600mm, 40W, 4000K, CE/RoHS", "model": "LP-6060-40", "hsCode": "9405.11", "qty": 2000, "unit": "PCS", "unitPrice": 7.99,
+      "qtyPerCarton": 4, "netKgPerCarton": 8.6, "grossKgPerCarton": 9.8, "cartonSize": { "length": 62, "width": 62, "height": 12 } }
+  ],
+  "remarks": "Quantity tolerance +/-3%."
+}

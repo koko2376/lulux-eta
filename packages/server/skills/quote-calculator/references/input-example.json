@@ -1,0 +1,17 @@
+{
+  "currency": "USD",
+  "fx": 7.1,
+  "items": [
+    { "name": "LED Panel", "spec": "600x600 40W 4000K", "qty": 2000, "unit": "pcs", "costCNY": 52.5, "vatIncluded": true, "rebateRate": 0.13, "cbmPerUnit": 0.0115, "kgPerUnit": 2.45 }
+  ],
+  "vatRate": 0.13,
+  "applyRebate": true,
+  "domestic": { "truckingCNY": 1500, "portChargesCNY": 1100, "customsCNY": 300, "docsCNY": 200, "inspectionCNY": 0, "otherCNY": 0 },
+  "freight": { "mode": "container", "containers": { "40HQ": 1 }, "ratePerContainer": { "40HQ": 2650 } },
+  "insurance": { "rate": 0.003, "markup": 1.1 },
+  "destCharges": { "deliveryToDoor": 650 },
+  "import": { "dutyRate": 0.027, "vatRate": 0.19, "brokerage": 180 },
+  "margin": 0.15,
+  "terms": ["EXW", "FOB", "CIF", "DDP"],
+  "port": { "loading": "Ningbo", "destination": "Hamburg" }
+}
