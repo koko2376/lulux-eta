@@ -1,0 +1,28 @@
+# Normalize text files to LF in the repository
+* text=auto eol=lf
+
+# Windows scripts keep CRLF
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary assets
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.icns  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.pdf   binary
+*.zip   binary
+*.db    binary
+*.xlsx  binary
+
+# Generated / vendored files: hide from diffs and language stats
+package-lock.json          linguist-generated=true -diff
+THIRD_PARTY_LICENSES.md    linguist-generated=true
+docs/screenshots/**        linguist-documentation=true

@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} · Node 22
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # Electron / Playwright binaries are not needed for lint, typecheck, unit tests and build
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      LULUX_ETA_HOME: ${{ github.workspace }}/.ci-data
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --include=dev
+
+      - name: Lint
+        run: npm run -ws --if-present lint
+
+      - name: Typecheck
+        run: npm run -ws --if-present typecheck
+
+      - name: Test
+        # Each workspace defines its own `test` script (Vitest). Packages without one are skipped.
+        run: npm run -ws --if-present test
+
+      - name: Build
+        run: npm run build
+
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on every commit
+        shell: bash
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for c in $(git rev-list --no-merges "$base..$head"); do
+            if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::Commit $c is missing a Signed-off-by line (use: git commit -s)"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  license-check:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --include=dev
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - name: Fail on copyleft licenses
+        run: >-
+          npx --yes license-checker-rseidelsohn
+          --excludePrivatePackages
+          --failOn 'GPL-2.0;GPL-2.0-only;GPL-2.0-or-later;GPL-3.0;GPL-3.0-only;GPL-3.0-or-later;AGPL-3.0;AGPL-3.0-only;AGPL-3.0-or-later;LGPL-2.1;LGPL-3.0;SSPL-1.0'
+          --summary
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

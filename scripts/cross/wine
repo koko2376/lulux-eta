@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# 交叉构建用的 “wine” 替身（仅 scripts/build-release.sh 在没有可用 wine 时放到 PATH 最前面）。
+#
+# electron-builder 在 Linux 上打 NSIS 安装包时，会用 wine 运行一次“卸载程序生成器”来得到 uninstaller.exe。
+# arm64 Linux 上跑不了 x86 wine；electron-builder 在 macOS 上用纯 JS 直接从生成器 exe 中解出 uninstaller，
+# 这里用同样思路的 nsis-uninstaller.cjs（兼容新版 NSIS stub）处理那次 wine 调用。
+# 其他用途（例如 rcedit）不支持：图标与版本信息由 packages/desktop/scripts/after-pack.cjs 用 resedit 写入。
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then echo "wine-9.0 (lulux uninstaller shim)"; exit 0; fi
+echo "$(date +%T) $*" >> "${TMPDIR:-/tmp}/lulux-wine-shim.log"
+installer="${1:?}"
+out="${LULUX_NSIS_UNINSTALLER_OUT:?LULUX_NSIS_UNINSTALLER_OUT 未设置}"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec node "$here/nsis-uninstaller.cjs" "$installer" "$out"

@@ -1,0 +1,141 @@
+{
+  "source": "https://github.com/NousResearch/hermes-agent",
+  "commit": "1f91fb386a60f5589146b05ee88e911bb58120e8",
+  "license": "MIT",
+  "imported": [
+    {
+      "name": "document-to-action-items",
+      "path": "skills/productivity/document-to-action-items",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "meeting-action-items",
+      "path": "skills/productivity/meeting-action-items",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "weekly-review-planning",
+      "path": "skills/productivity/weekly-review-planning",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "product-price-monitor",
+      "path": "skills/productivity/product-price-monitor",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "competitor-news-monitor",
+      "path": "skills/research/competitor-news-monitor",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "email-inbox-triage",
+      "path": "skills/email/email-inbox-triage",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "one-three-one-rule",
+      "path": "optional-skills/communication/one-three-one-rule",
+      "author": "Willard Moore"
+    },
+    {
+      "name": "decision-questionnaire",
+      "path": "optional-skills/productivity/decision-questionnaire",
+      "author": "Matt Pocock (mattpocock/skills, to-questionnaire) + Hermes Agent"
+    },
+    {
+      "name": "simple-english",
+      "path": "optional-skills/creative/simple-english",
+      "author": "AminBlg (https://github.com/AminBlg/SimpleEnglish), ported by Hermes Agent"
+    },
+    {
+      "name": "social-media-content-calendar",
+      "path": "optional-skills/creative/social-media-content-calendar",
+      "author": "Ben Barclay (benbarclay), Hermes Agent"
+    },
+    {
+      "name": "domain-intel",
+      "path": "optional-skills/research/domain-intel",
+      "author": "FurkanL0, Hermes Agent"
+    },
+    {
+      "name": "grounded-citations",
+      "path": "skills/research/grounded-citations",
+      "author": "Hermes Agent + Teknium"
+    }
+  ],
+  "skipped": [
+    {
+      "path": "skills/productivity/docx",
+      "reason": "目录自带 LICENSE 文件（按规则不导入），改为原创 word-docx 技能"
+    },
+    {
+      "path": "skills/productivity/xlsx",
+      "reason": "目录自带 LICENSE 文件（按规则不导入），改为原创 excel-xlsx 技能"
+    },
+    {
+      "path": "skills/productivity/powerpoint",
+      "reason": "目录自带 LICENSE 文件（按规则不导入），改为原创 ppt-pptx 技能"
+    },
+    {
+      "path": "skills/productivity/pdf",
+      "reason": "目录自带 LICENSE 文件（按规则不导入），改为原创 pdf-tools 技能"
+    },
+    {
+      "path": "skills/creative/humanizer",
+      "reason": "目录自带 LICENSE（作者 Siqi Chen），按规则不导入；润色由原创 translate-polish 覆盖"
+    },
+    {
+      "path": "optional-skills/finance/excel-author",
+      "reason": "注明 author: Anthropic、license: Apache-2.0（非 MIT 来源），不导入"
+    },
+    {
+      "path": "optional-skills/finance/pptx-author",
+      "reason": "注明 author: Anthropic、license: Apache-2.0（非 MIT 来源），不导入"
+    },
+    {
+      "path": "optional-skills/research/duckduckgo-search",
+      "reason": "依赖 pip 包 ddgs 与 execute_code；LULUX 已有 web_search"
+    },
+    {
+      "path": "skills/web/blocked-page-recovery",
+      "reason": "依赖 curl/浏览器的反封锁抓取技巧，LULUX 无浏览器工具且不宜绕过网站限制"
+    },
+    {
+      "path": "skills/productivity/google-workspace / notion / airtable / box / maps / teams-meeting-pipeline",
+      "reason": "依赖第三方 API 凭据或 Hermes 连接器"
+    },
+    {
+      "path": "skills/research/arxiv / llm-wiki",
+      "reason": "学术论文/Hermes 知识库专用，与外贸办公关系弱"
+    },
+    {
+      "path": "optional-skills/research/osint-investigation",
+      "reason": "个人信息调查风险高，客户背调由原创 customer-background-check 覆盖"
+    },
+    {
+      "path": "optional-skills/research/searxng-search / parallel-cli / scrapling / qmd / blogwatcher / rss-feeds",
+      "reason": "依赖外部 CLI 或服务"
+    },
+    {
+      "path": "optional-skills/data-science/jupyter-notebook",
+      "reason": "依赖 Jupyter 运行环境"
+    },
+    {
+      "path": "skills/apple/*",
+      "reason": "仅适用 macOS/Apple"
+    },
+    {
+      "path": "skills/note-taking/obsidian、skills/email/himalaya",
+      "reason": "依赖本机第三方 CLI/应用"
+    },
+    {
+      "path": "skills/software-development/*、devops/*、mlops/*、autonomous-ai-agents/*",
+      "reason": "开发调试/Hermes 基础设施类"
+    },
+    {
+      "path": "skills/creative/*（多数）、media/*、social-media/*、gaming/*、blockchain/*、smart-home/*、health/*、payments/* 等",
+      "reason": "与外贸办公无关或依赖专有服务"
+    }
+  ]
+}

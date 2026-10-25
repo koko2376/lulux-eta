@@ -1,0 +1,297 @@
+name: Release
+
+# Builds the desktop installers with electron-builder (packages/desktop/electron-builder.yml) and attaches them,
+# together with the electron-updater metadata (latest*.yml + *.blockmap) and SHA256SUMS.txt, to a DRAFT GitHub Release.
+# Triggered by pushing a tag like v0.1.1 (stable) or v0.1.2-beta.1 (marked prerelease → "beta" update channel).
+# Auto-update only sees the release after the draft is published. See docs/AUTO-UPDATE.md.
+#
+# Outputs per tag:
+#   Windows x64      LULUX-ETA-<v>-win-x64-setup.exe (+ .blockmap)            latest.yml
+#   macOS arm64/x64  LULUX-ETA-<v>-mac-{arm64,x64}.dmg / -mac-{arm64,x64}.zip  latest-mac.yml (both zips, one file)
+#   Linux x64/arm64  LULUX-ETA-<v>-linux-{x86_64,arm64}.AppImage              latest-linux.yml / latest-linux-arm64.yml
+#   Team server      lulux-eta-server-<tag>.tar.gz (job "server"; attached to the release, listed in SHA256SUMS.txt)
+#   Docker image     ghcr.io/<owner>/lulux-eta:<v> (+ :latest for stable tags) (job "docker"; pushed to GHCR, not attached)
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build (e.g. v0.1.1)'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  LULUX_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  # Update source baked into app-update.yml. Defaults to this repository; override with the repo variable LULUX_UPDATE_REPO.
+  LULUX_UPDATE_REPO: ${{ vars.LULUX_UPDATE_REPO || github.repository }}
+
+jobs:
+  build:
+    name: Package · ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            eb_args: --win nsis --x64
+            expect: latest.yml
+          # One macOS job builds both architectures so electron-builder writes a single latest-mac.yml listing the
+          # arm64 and x64 zips (two jobs would each write their own latest-mac.yml and overwrite each other).
+          # macos-latest is Apple Silicon; the x64 app is cross-built there (no native modules in the desktop shell).
+          - name: macos-arm64-x64
+            os: macos-latest
+            eb_args: --mac dmg zip --arm64 --x64
+            expect: latest-mac.yml
+          - name: linux-x64-arm64
+            os: ubuntu-latest
+            eb_args: --linux AppImage --x64 --arm64
+            expect: latest-linux.yml latest-linux-arm64.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.LULUX_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --include=dev
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Build server + client
+        run: |
+          npm run build -w @lulux/server
+          npm run build -w @lulux/client
+
+      # ---- Code signing / notarization (all optional: unsigned builds are produced when secrets are absent) ----
+      # macOS:   MAC_CSC_LINK (base64 .p12 "Developer ID Application"), MAC_CSC_KEY_PASSWORD,
+      #          APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (notarization; electron-builder notarizes when all are set)
+      #          Only a Developer ID signed + notarized build can auto-update on macOS (Squirrel.Mac checks the signature).
+      # Windows: WIN_CSC_LINK (base64 .pfx), WIN_CSC_KEY_PASSWORD
+      #          (or replace with Azure Trusted Signing: AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET)
+      #          Once signed, keep signing every release with the same publisher (see docs/AUTO-UPDATE.md).
+      - name: Package (electron-builder)
+        shell: bash
+        env:
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::No signing certificate configured for ${{ runner.os }}; producing an unsigned build (auto-update: Windows/Linux yes, macOS check-only)."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          case "$LULUX_UPDATE_REPO" in */*) ;; *) echo "::error::LULUX_UPDATE_REPO must be owner/repo"; exit 1 ;; esac
+          cd packages/desktop
+          npm run predist
+          # --publish never: electron-builder still writes latest*.yml / blockmaps; the release job uploads them.
+          npx --no-install electron-builder --config electron-builder.yml --publish never ${{ matrix.eb_args }} \
+            -c.publish.provider=github -c.publish.owner="${LULUX_UPDATE_REPO%%/*}" -c.publish.repo="${LULUX_UPDATE_REPO#*/}"
+
+      - name: Verify update metadata
+        shell: bash
+        working-directory: packages/desktop/release
+        run: |
+          ls -la
+          version="$(node -p "require('../package.json').version")"
+          tag_version="${LULUX_TAG#v}"
+          [ "$version" = "$tag_version" ] || echo "::warning::packages/desktop/package.json version ($version) != tag ($tag_version); electron-updater compares the version inside latest*.yml."
+          for y in ${{ matrix.expect }}; do
+            [ -f "$y" ] || { echo "::error::missing $y"; exit 1; }
+            echo "--- $y"; cat "$y"
+            grep -q "^version: $version\$" "$y" || { echo "::error::$y has the wrong version"; exit 1; }
+          done
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            for a in arm64 x64; do
+              for ext in dmg zip; do [ -f "LULUX-ETA-$version-mac-$a.$ext" ] || { echo "::error::missing mac $a $ext"; exit 1; }; done
+              grep -q "LULUX-ETA-$version-mac-$a.zip" latest-mac.yml || { echo "::error::latest-mac.yml lacks the $a zip"; exit 1; }
+            done
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lulux-eta-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            packages/desktop/release/*.exe
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/*.AppImage
+            packages/desktop/release/*.blockmap
+            packages/desktop/release/latest*.yml
+
+  # Team server bundle: compiled server + web UI + production node_modules + Docker/compose/deploy files.
+  # Built by scripts/build-server-bundle.sh (runnable locally), smoke-tested here, uploaded for the release job.
+  server:
+    name: Package · server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.LULUX_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --include=dev --ignore-scripts
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Build server + client
+        run: |
+          npm run build -w @lulux/server
+          npm run build -w @lulux/client
+
+      - name: Bundle
+        id: bundle
+        shell: bash
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          tarball="$(bash scripts/build-server-bundle.sh "$LULUX_TAG" "ghcr.io/$owner/lulux-eta:${LULUX_TAG#v}" | tail -n 1)"
+          ls -la "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      # Unpack into a clean dir (outside the repo, so nothing resolves from the checkout) and start it in server mode.
+      - name: Smoke test
+        shell: bash
+        run: |
+          t="$RUNNER_TEMP/server-smoke"
+          mkdir -p "$t" && tar xzf "${{ steps.bundle.outputs.tarball }}" -C "$t"
+          cd "$t/lulux-eta-server-$LULUX_TAG"
+          LULUX_PUBLIC_ORIGIN=https://lulux.example.com LULUX_ETA_HOME="$t/data" LULUX_ETA_PORT=51799 ./start-server.sh > "$t/server.log" 2>&1 &
+          pid=$!
+          ok=
+          for _ in $(seq 1 30); do
+            if out="$(curl -fsS http://127.0.0.1:51799/api/auth/mode)"; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$pid" || true
+          cat "$t/server.log"
+          [ -n "$ok" ] || { echo "::error::server did not answer /api/auth/mode"; exit 1; }
+          echo "$out"
+          echo "$out" | grep -q '"mode":"server"' || { echo "::error::unexpected /api/auth/mode response"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lulux-eta-server
+          if-no-files-found: error
+          path: ${{ steps.bundle.outputs.tarball }}
+
+  # Team server image on GHCR: ghcr.io/<owner>/lulux-eta:<version> (+ :latest for stable tags), linux/amd64 + linux/arm64.
+  # Uses the repository Dockerfile; authenticates with GITHUB_TOKEN.
+  docker:
+    name: Docker image · GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.LULUX_TAG }}
+
+      - name: Image name + tags
+        id: meta
+        shell: bash
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/$owner/lulux-eta"
+          version="${LULUX_TAG#v}"
+          tags="$image:$version"
+          # :latest only moves on stable tags; pre-releases (v0.1.2-beta.1) get just their version tag
+          case "$LULUX_TAG" in *-*) ;; *) tags="$tags,$image:latest" ;; esac
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "$tags"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=LULUX ETA server
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=BSL-1.1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Draft GitHub Release
+    needs: [build, server]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.LULUX_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          pattern: lulux-eta-*
+          merge-multiple: true
+      - name: Checksums + release notes
+        id: prep
+        shell: bash
+        run: |
+          cd dist-artifacts
+          ls -la
+          for y in latest.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml; do
+            [ -f "$y" ] || { echo "::error::missing $y"; exit 1; }
+          done
+          ls lulux-eta-server-*.tar.gz >/dev/null 2>&1 || { echo "::error::missing server tarball"; exit 1; }
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          notes="docs/release/release-notes-${LULUX_TAG}.md"
+          if [ ! -f "$notes" ]; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            printf 'LULUX ETA %s\n\nSee CHANGELOG.md. Verify downloads with SHA256SUMS.txt.\n' "$LULUX_TAG" > "$notes"
+          fi
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+          # prerelease = tag has a semver pre-release part (v0.1.2-beta.1); only those reach the "beta" update channel
+          case "$LULUX_TAG" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.LULUX_TAG }}
+          name: LULUX ETA ${{ env.LULUX_TAG }}
+          draft: true
+          prerelease: ${{ steps.prep.outputs.prerelease }}
+          body_path: ${{ steps.prep.outputs.notes }}
+          fail_on_unmatched_files: true
+          files: dist-artifacts/*
