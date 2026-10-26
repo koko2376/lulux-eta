@@ -21,7 +21,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "44.9.1",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "npm": "^12.2.0",
     "resedit": "^1.7.2",
