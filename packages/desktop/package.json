@@ -20,10 +20,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "electron": "44.9.1",
+    "electron": "44.9.3",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.2",
-    "npm": "^12.2.0",
+    "npm": "^12.2.1",
     "resedit": "^1.7.2",
     "typescript": "~5.7.2"
   },
