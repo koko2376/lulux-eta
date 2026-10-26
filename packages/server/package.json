@@ -32,12 +32,12 @@
     "@types/mailparser": "^3.9.0",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
-    "@types/pdfkit": "^0.17.6",
+    "@types/pdfkit": "^0.17.7",
     "@types/smtp-server": "^3.5.13",
     "hoodiecrow-imap": "^3.3.1",
-    "smtp-server": "^3.20.2",
+    "smtp-server": "^3.21.1",
     "tsx": "^4.19.2",
-    "typescript": "~5.7.2",
+    "typescript": "~5.9.3",
     "vitest": "^5.0.5"
   }
 }
