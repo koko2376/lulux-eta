@@ -1,0 +1,73 @@
+LULUX ETA
+Copyright (c) 2026 koko
+
+This product is licensed under the Business Source License 1.1 (see LICENSE).
+It is source-available software and is not distributed under an OSI-approved
+open source license until its Change Date (see LICENSE).
+
+------------------------------------------------------------------------------
+1. Third-party open source components
+------------------------------------------------------------------------------
+
+This product includes third-party open source software. The complete list of
+production dependencies, their versions, licenses, and full license texts is
+provided in THIRD_PARTY_LICENSES.md.
+
+The desktop installer additionally contains the Electron runtime (MIT License,
+Copyright (c) Electron contributors and GitHub Inc.), which itself bundles
+Chromium, Node.js, and other components. Their notices are shipped inside the
+installer as LICENSE.electron.txt and LICENSES.chromium.html.
+
+Some built-in skills are derived from Hermes Agent
+(https://github.com/NousResearch/hermes-agent, commit 1f91fb386a60),
+Copyright (c) 2025 Nous Research, used under the MIT License, with
+modifications by LULUX ETA. Imported skills: document-to-action-items, meeting-action-items, weekly-review-planning, product-price-monitor, competitor-news-monitor, email-inbox-triage, one-three-one-rule, decision-questionnaire, simple-english, social-media-content-calendar, domain-intel, grounded-citations.
+The original authors are credited in each skill's SKILL.md. The full MIT
+license text and the list of imported and skipped skills are in
+THIRD_PARTY_LICENSES.md ("Built-in skills imported from Hermes Agent").
+
+npm packages used by built-in skill scripts (docx, exceljs, pptxgenjs,
+pdf-parse; all MIT) are NOT bundled. They are downloaded by your own computer
+from the configured npm registry into <dataDir>/skill-runtime the first time a
+script that needs them is run with your approval. See THIRD_PARTY_LICENSES.md
+("Runtime npm packages installed on demand by built-in skills") and
+docs/SKILLS.md.
+
+------------------------------------------------------------------------------
+2. Third-party AI agent runtimes ("kernels") are NOT distributed
+------------------------------------------------------------------------------
+
+LULUX ETA can help you install and launch third-party command-line AI agents,
+including but not limited to:
+
+  - Claude Code      (Anthropic PBC)         npm: @anthropic-ai/claude-code
+  - Codex CLI        (OpenAI)                npm: @openai/codex
+  - Gemini CLI       (Google LLC)            npm: @google/gemini-cli
+  - Qwen Code        (Alibaba Cloud / Qwen)  npm: @qwen-code/qwen-code
+
+These programs are NOT included in, bundled with, or redistributed as part of
+LULUX ETA. When you choose to install one, it is downloaded by your own
+computer directly from a public npm registry (the official registry or a
+public mirror such as registry.npmmirror.com) and is governed solely by its
+own license and terms of service, which you must accept with its respective
+owner. Some of these programs are proprietary software.
+
+All product names, logos, and trademarks mentioned (including "Claude",
+"Claude Code", "Anthropic", "Codex", "OpenAI", "ChatGPT", "Gemini", "Google",
+"Qwen", "Tongyi", and "Alibaba Cloud") are the property of their respective
+owners. They are used in LULUX ETA only to identify the corresponding
+third-party software (nominative use). LULUX ETA and its author are not
+affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Google,
+Alibaba Cloud, or any other model or tool vendor.
+
+The same applies to the model providers that you can configure (for example
+DeepSeek, Moonshot, Zhipu, Volcano Engine, SiliconFlow, OpenRouter, LM Studio,
+Ollama): their names are used only to identify compatible services.
+
+------------------------------------------------------------------------------
+3. LULUX trademark
+------------------------------------------------------------------------------
+
+"LULUX" and "LULUX ETA" and the LULUX logo are names and marks of the
+Licensor. The Business Source License does not grant any right to use them,
+except as required to reproduce this NOTICE and the LICENSE.

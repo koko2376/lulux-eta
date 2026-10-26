@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+/release/
+/release-portable/
+packages/desktop/release/
+packages/desktop/release-portable/
+packages/desktop/resources/server/
+*.tsbuildinfo
+
+# Test & coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.vitest-cache/
+
+# Local data (never commit customer data or API keys)
+data/
+.ci-data/
+.lulux-eta/
+api-token
+backups/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+*.cer
+*.mobileprovision
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Server release bundle (scripts/build-server-bundle.sh)
+dist-server/

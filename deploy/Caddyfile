@@ -1,0 +1,18 @@
+# 自动申请 / 续期 Let's Encrypt 证书；LULUX_DOMAIN 由 docker-compose 传入
+{$LULUX_DOMAIN} {
+	encode gzip
+	# SSE（对话流、/api/events）不要缓冲
+	reverse_proxy lulux:51789 {
+		flush_interval -1
+		header_up X-Forwarded-For {remote_host}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	request_body {
+		max_size 25MB
+	}
+}
