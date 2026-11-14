@@ -28,7 +28,7 @@
     "typescript": "~5.7.2"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.11"
   },
   "optionalDependencies": {
     "robotjs": "0.9.1"
