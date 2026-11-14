@@ -46,3 +46,16 @@ export const httpUrl = z
 
 export const shortText = (max = 200) => z.string().trim().max(max)
 export const optionalText = (max = 2000) => z.string().max(max).optional()
+
+/**
+ * PATCH 用：去掉字段上的 .default()，再全部可选。
+ * zod 4 里 `.partial()` 不会屏蔽 default —— 缺省字段仍会被填成默认值，PATCH 只改一项也会把其它项写回默认。
+ */
+export function patchShape<S extends z.ZodRawShape>(shape: S): { [K in keyof S]: z.ZodOptional<S[K] extends z.ZodDefault<infer I> ? I : S[K]> } {
+  const out: Record<string, z.ZodType> = {}
+  for (const [key, value] of Object.entries(shape)) {
+    const inner = value instanceof z.ZodDefault ? (value.removeDefault() as z.ZodType) : (value as z.ZodType)
+    out[key] = inner.optional()
+  }
+  return out as never
+}

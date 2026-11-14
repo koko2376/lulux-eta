@@ -11,6 +11,7 @@ import { backupService } from './services/backup-service.js'
 import { taskReminders } from './services/task-service.js'
 import { trashPurger } from './services/trash-service.js'
 import { scheduler } from './services/schedule/scheduler.js'
+import { whatsappService } from './services/whatsapp/service.js'
 import { logger } from './services/logger.js'
 import { shutdownRuns } from './services/chat/run-registry.js'
 import { killAllGroups } from './utils/kill-tree.js'
@@ -79,6 +80,8 @@ const server = app.listen(config.port, config.host, () => {
   // 回收站超过保留天数（设置 trashRetentionDays）自动彻底删除
   trashPurger.start()
   scheduler.start()
+  // server：已绑定的 WhatsApp 用保存的凭据自动连上（电脑关机也在线）；desktop 由用户点「重新连接」
+  void whatsappService.resumeLinked().catch(() => undefined)
   startAutoUpdate()
   console.log(`[lulux-eta] mode: ${config.mode}`)
 })

@@ -50,7 +50,14 @@ Export sales reps spend their day jumping between inquiries, customer records, q
 - **Bring your own model:** any OpenAI-compatible or Anthropic API (DeepSeek, Qwen, Moonshot, local Ollama, and more).
 - **Multiple agent kernels:** the built-in LULUX kernel, plus CLI agents you can install from Settings — Hermes, Claude Code, Codex, Pi, Grok, Gemini CLI, Qwen Code. They are downloaded by your machine from public npm registries and are not bundled with this software.
 
-## Features (v0.1.2)
+## Features (v0.1.4)
+
+### ✨ New in v0.1.4
+
+- **WhatsApp channel**: a new WhatsApp entry in the sidebar links one personal account as a linked device; three-pane chats (search, filters, tags, pin / archive, quick replies, customer profile with manual linking), input translation and translated incoming messages. See the [WhatsApp](#-whatsapp-unofficial-engine-risk-acceptance-required) section below.
+- **LULUX drafts WhatsApp replies**: the agent can list chats, read messages and draft replies (saved as drafts; you “Use and edit” before sending); sending a message always asks for your approval.
+- **High-density customer list**: compact rows, primary contact / local time / tags columns, optional columns, server-side sorting, 20 / 50 / 100 per page, and cross-page batch stage / tag / assign / delete.
+- **Mailbox refresh and fixes**: accent-coloured selection, unread dots, previous / next in the reading pane; images now display (inline images, and remote images loaded through the server after you allow them for that message). See the [CHANGELOG](CHANGELOG.md) for all fixes.
 
 ### ✨ New in v0.1.2
 
@@ -132,6 +139,24 @@ Put LULUX and CLI agents in one group and run them like a small team.
 - IMAP / SMTP with presets for Gmail, Outlook.com, Microsoft 365, QQ Mail, Tencent Exmail, NetEase 163, NetEase 126, Alibaba Mail and Zoho Mail, plus custom servers; OAuth for Gmail and Microsoft.
 - Incoming mail is linked to customers automatically. **Inquiry rules** combine subject / body / sender / domain conditions (contains / does not contain / regex) to mark mail as inquiry, spam or needs review, with a tester that runs a rule against a sample email.
 - **AI reply drafts:** the original email is passed to the model as untrusted external content, so instructions inside it are not followed. It only produces a draft — **sending always takes your click**.
+
+### 📱 WhatsApp (unofficial engine, risk acceptance required)
+
+- **One account per server**: link one personal account through WhatsApp Linked Devices, by QR code or an 8-digit phone pairing code. The QR is generated live by the server (valid 20 seconds); pairing codes are valid for 4 minutes. On a team server the first member who links owns the account; other members cannot see its number or chats.
+- **Risk acceptance before linking**: the Channels page lists the ban, data-loss and liability risks; the QR code or pairing code appears only after both boxes are ticked. The acceptance is kept for 30 days.
+- **Chats**: three panes — conversation list (search by name / number / company, all / unread / awaiting reply / archived, tags, pin and archive), message stream (failed sends can be retried) and a customer profile (matched by phone, or linked manually to an existing customer, or create one). Personal quick replies insert with one click.
+- **Translation**: type in your own language in the small box; the translation fills the main message box, and what is sent is always the main box. Incoming messages can show a translation inside the bubble without changing the original. The translator is installed at runtime, see [docs/WHATSAPP-TRANSLATOR.md](docs/WHATSAPP-TRANSLATOR.md).
+- **LULUX assistance**: the agent can list chats, read messages and draft replies — drafts appear in the chat for you to “Use and edit” or “Discard”; sending always asks for your approval.
+- **Egress proxy**: one SOCKS5 / HTTP / HTTPS proxy for the linked account (set by the linking member or an owner / admin); “Test connection” shows the egress IP. You bring your own line.
+- **Engine not shipped**: the Baileys protocol engine and the qrcode library are not dependencies in any `package.json`; install them under `.eta-engines/whatsapp/` (git-ignored). When missing, the UI shows `ENGINE_NOT_INSTALLED`. See [docs/WHATSAPP-ENGINE.md](docs/WHATSAPP-ENGINE.md) for installation, offline packages and the GPL-3.0 notice.
+- Text messages only in this version; media, groups and template messages are out of scope.
+
+#### ⚠️ Risk statement (always shown)
+
+> The WhatsApp integration in this project is unofficial and violates WhatsApp's Terms of Service. Your account may be restricted or permanently banned, with no appeal process. You use it entirely at your own risk; the authors accept no liability. This project provides no workaround, proxy, VPN, relay, ban-evasion tooling, or appeal assistance of any kind. If you do not accept these risks, do not enable it.
+
+> "Linking your device through unofficial apps or websites may put your account at risk… Linking your account to an unofficial app or website, now or in the past, may result in a temporary or permanent account ban."
+> — WhatsApp Help Center, About linked devices
 
 ### 🏢 Team server (self-hosted)
 

@@ -28,14 +28,7 @@ async function mockCall(path: string, body?: unknown): Promise<any> {
   return res.json()
 }
 const script = (...responses: unknown[]) => mockCall('/__mock/script', { responses })
-const mockRequests = (): Promise<any[]> => mockCall('/__mock/requests')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-async function newSession(agentIds: string[], supervisorId?: string): Promise<string> {
-  const res = await server.request('POST', '/api/sessions', { body: { agentIds, ...(supervisorId ? { supervisorId } : {}) } })
-  expect(res.status, JSON.stringify(res.json)).toBe(201)
-  return res.json.session.id
-}
 
 async function chat(sessionId: string, content: string, extra: Record<string, unknown> = {}) {
   const res = await server.request('POST', '/api/chat', { body: { sessionId, content, ...extra } })
@@ -43,10 +36,7 @@ async function chat(sessionId: string, content: string, extra: Record<string, un
   return parseSse(res.text)
 }
 
-const speakers = (events: Array<{ event: string; data: any }>) =>
-  events.filter((e) => e.event === 'agent').map((e) => `${e.data.agentId}:${e.data.role}`)
 const dones = (events: Array<{ event: string; data: any }>) => events.filter((e) => e.event === 'done').map((e) => e.data.message)
-const dispatch = (members: string[], instructions = '') => ({ toolCalls: [{ name: 'dispatch_members', arguments: { members, instructions } }] })
 
 beforeAll(async () => {
   const port = await freePort()

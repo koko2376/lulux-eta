@@ -269,7 +269,7 @@ export function parseUn(xml: string): SanctionsEntry[] {
     const match = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`).exec(block)
     return match ? decodeXml(match[1]!.trim()) : ''
   }
-  function getAliasNames(block: string, tag: string): string[] {
+  function getAliasNames(block: string, _tag: string): string[] {
     const names: string[] = []
     const wrapper = new RegExp(`<(INDIVIDUAL|ENTITY)_ALIAS>([\\s\\S]*?)<\\/(INDIVIDUAL|ENTITY)_ALIAS>`, 'g')
     let m: RegExpExecArray | null

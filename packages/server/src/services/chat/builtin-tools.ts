@@ -8,6 +8,8 @@ import { quoteService } from '../quote-service.js'
 import { settingsService } from '../settings-service.js'
 import type { ToolDefinition } from '../../types.js'
 import { CRM_TOOLS, duplicateReport } from './crm-tools.js'
+import { WHATSAPP_TOOLS } from './whatsapp-tools.js'
+import { localTimeFor } from '../../utils/country-time.js'
 import { PROSPECT_TOOLS } from './prospect-tools.js'
 import { PRICING_TOOLS } from './pricing-tools.js'
 import { INQUIRY_TOOLS } from './inquiry-tools.js'
@@ -21,11 +23,13 @@ const localTimeOf = (instant: number): string => {
 }
 import type { ToolContext } from '../tools/registry.js'
 
-/** 内置业务工具（契约 4.9）。没有任何“发送邮件”能力：Agent 只能创建草稿。 */
+/** 内置业务工具（契约 4.9）。没有任何“发送邮件”能力：Agent 只能创建草稿；WhatsApp 发送每次都要用户批准。 */
 export interface BuiltinTool extends ToolDefinition {
   risk: 'read' | 'write'
   permissions?: Permission[]
   approval?: 'always'
+  /** 不可撤回的对外操作（如发 WhatsApp 消息）：即使“完全权限”也逐次确认 */
+  orgLevel?: boolean
   noRemember?: boolean
   run(args: Record<string, unknown>, ctx?: ToolContext): Promise<unknown> | unknown
 }
@@ -63,10 +67,35 @@ const TOOLS: BuiltinTool[] = [
     },
     run(args) {
       const input = z
-        .object({ query: z.string().max(200).optional(), stage: z.string().optional(), tag: z.string().max(50).optional(), limit: limitField })
+        .object({
+          query: z.string().max(200).optional(),
+          stage: z.string().optional(),
+          tag: z.string().max(50).optional(),
+          country: z.string().max(100).optional(),
+          sort: z.enum(['updatedAt', 'createdAt', 'company']).optional(),
+          limit: limitField,
+        })
         .parse(args)
-      const result = customerService.list({ query: input.query, stage: input.stage || undefined, tag: input.tag, page: 1, pageSize: input.limit })
-      return { total: result.total, items: result.items.map(summarizeCustomer) }
+      const result = customerService.list({
+        query: input.query,
+        stage: input.stage || undefined,
+        tag: input.tag,
+        country: input.country || undefined,
+        ...(input.sort ? { sort: input.sort, order: input.sort === 'company' ? 'asc' : 'desc' } : {}),
+        page: 1,
+        pageSize: input.limit,
+      })
+      const now = Date.now()
+      return {
+        total: result.total,
+        items: result.items.map((c) => {
+          const lt = localTimeFor(c.country, now)
+          return {
+            ...summarizeCustomer(c),
+            localTime: lt ? { time: lt.text, timeZone: lt.tz, businessHours: lt.workHours, approx: lt.approx } : null,
+          }
+        }),
+      }
     },
   },
   {
@@ -101,7 +130,6 @@ const TOOLS: BuiltinTool[] = [
       type: 'object',
       properties: {
         company: { type: 'string' },
-        country: { type: 'string' },
         website: { type: 'string' },
         stage: { type: 'string', enum: ['lead', 'contacted', 'quoted', 'negotiating', 'won', 'lost'] },
         tags: { type: 'array', items: { type: 'string' } },
@@ -276,7 +304,7 @@ export function builtinToolsEnabled(): boolean {
 }
 
 export function builtinTools(): BuiltinTool[] {
-  return builtinToolsEnabled() ? [...TOOLS, ...CRM_TOOLS, ...PROSPECT_TOOLS, ...PRICING_TOOLS, ...INQUIRY_TOOLS, ...SEQUENCE_TOOLS, ...DOCS_TOOLS] : []
+  return builtinToolsEnabled() ? [...TOOLS, ...CRM_TOOLS, ...PROSPECT_TOOLS, ...PRICING_TOOLS, ...INQUIRY_TOOLS, ...SEQUENCE_TOOLS, ...DOCS_TOOLS, ...WHATSAPP_TOOLS] : []
 }
 
 export function findBuiltinTool(name: string): BuiltinTool | undefined {

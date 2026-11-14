@@ -9,7 +9,8 @@ export const SEARCH_DEFAULT_ENDPOINTS: Record<Exclude<SearchProvider, 'none'>, s
   tavily: 'https://api.tavily.com/search',
   brave: 'https://api.search.brave.com/res/v1/web/search',
   searxng: '',
-  bing: 'https://api.bing.microsoft.com/v7.0/search',
+  // 微软官方 Bing Search API 已于 2025-08-11 停止服务，只支持填写兼容该接口的网关地址
+  bing: '',
 }
 
 export interface SearchConfig {
@@ -97,7 +98,7 @@ export const searchConfigService = {
         { id: 'tavily', name: 'Tavily', needsKey: true, needsEndpoint: false, defaultEndpoint: SEARCH_DEFAULT_ENDPOINTS.tavily },
         { id: 'brave', name: 'Brave Search', needsKey: true, needsEndpoint: false, defaultEndpoint: SEARCH_DEFAULT_ENDPOINTS.brave },
         { id: 'searxng', name: 'SearXNG（自建）', needsKey: false, needsEndpoint: true, defaultEndpoint: '' },
-        { id: 'bing', name: 'Bing Web Search 兼容接口', needsKey: true, needsEndpoint: false, defaultEndpoint: SEARCH_DEFAULT_ENDPOINTS.bing },
+        { id: 'bing', name: 'Bing Web Search 兼容接口', needsKey: true, needsEndpoint: true, defaultEndpoint: '' },
       ],
     }
   },

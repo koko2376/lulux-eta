@@ -88,6 +88,18 @@ export const router = createRouter({
           meta: { section: 'mailbox' },
         },
         {
+          path: 'whatsapp',
+          name: 'whatsapp',
+          component: () => import('./views/WhatsAppView.vue'),
+          meta: { section: 'whatsapp', whatsappTab: 'chats' },
+        },
+        {
+          path: 'whatsapp/channels',
+          name: 'whatsapp-channels',
+          component: () => import('./views/WhatsAppView.vue'),
+          meta: { section: 'whatsapp', whatsappTab: 'channels' },
+        },
+        {
           path: 'workflows/:id?',
           name: 'workflows',
           component: () => import('./views/WorkflowsView.vue'),

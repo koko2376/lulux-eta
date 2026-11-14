@@ -1379,6 +1379,197 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    // 远程图片显示同意：用户逐封开启后才允许服务端代理加载，选择按用户持久化（团队服务器各成员互不影响）
+    version: 37,
+    name: "email_remote_image_consents",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS email_remote_image_consents (
+          user_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, message_id),
+          FOREIGN KEY (message_id) REFERENCES email_messages(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_remote_image_consents_user ON email_remote_image_consents(user_id);
+      `);
+    },
+  },
+  {
+    // WhatsApp 会话与消息：按绑定者隔离；customer_id 为手动关联的客户；archived_at / pinned_at / tags 为会话整理（归档、置顶、会话标签，不影响 CRM 客户标签）；
+    // draft_text / draft_at 为 LULUX 起草、尚未发送的回复（用户在会话页采用或丢弃）
+    version: 38,
+    name: "whatsapp_conversations_and_messages",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+          id TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL,
+          org_id TEXT NOT NULL,
+          remote_jid TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          display_name TEXT NOT NULL DEFAULT '',
+          customer_id TEXT,
+          last_message_at INTEGER,
+          last_message_preview TEXT NOT NULL DEFAULT '',
+          last_message_direction TEXT,
+          unread_count INTEGER NOT NULL DEFAULT 0,
+          archived_at INTEGER,
+          pinned_at INTEGER,
+          tags TEXT NOT NULL DEFAULT '[]',
+          draft_text TEXT,
+          draft_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (owner_id, remote_jid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_owner
+          ON whatsapp_conversations(owner_id, last_message_at DESC);
+
+        CREATE TABLE IF NOT EXISTS whatsapp_messages (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          owner_id TEXT NOT NULL,
+          direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+          type TEXT NOT NULL DEFAULT 'text' CHECK (type IN ('text')),
+          body TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('received', 'sending', 'sent', 'failed')),
+          failure_reason TEXT,
+          engine_message_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (conversation_id) REFERENCES whatsapp_conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_conversation
+          ON whatsapp_messages(conversation_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_owner
+          ON whatsapp_messages(owner_id, created_at);
+      `);
+    },
+  },
+  {
+    // 万级客户查询的组合索引、标签规范化表与 FTS5(trigram) 搜索镜像。已发布迁移不可改，只追加。
+    // fts5 trigram 需 SQLite ≥ 3.34：Node 22 自带 3.51、Electron 44 自带 3.53，均已实测可建表：对中文 >=2 字 / 英文 >=3 字的包含式搜索走索引，
+    // 不再对 customers 主表做前后通配 LIKE 全扫。1 字查询退化为镜像表 LIKE + instr 精确校验。
+    version: 39,
+    name: "customer_query_indexes",
+    up(db) {
+      // 搜索镜像里每一行的正文：公司/国家/官网/备注/标签 + 该客户全部联系人的可见文本，统一小写。
+      // 六个触发器共用这一个表达式，保证绕过服务层直接 INSERT 的测试 fixture 也能同步。
+      // NULL 安全：早期库里可能有手工插入、列值为 NULL 的行，'||' 遇 NULL 会把整行正文变 NULL。
+      const body = () =>
+        `lower(coalesce(c.company,'') || ' ' || coalesce(c.country,'') || ' ' || ` +
+        `coalesce(c.website,'') || ' ' || coalesce(c.notes,'') || ' ' || ` +
+        `coalesce(CASE WHEN json_valid(c.tags) THEN c.tags ELSE '[]' END, '') || ' ' || ` +
+        `coalesce((SELECT group_concat(coalesce(t.name,'') || ' ' || coalesce(t.email,'') || ' ' || ` +
+        `coalesce(t.phone,'') || ' ' || coalesce(t.whatsapp,''), ' ') ` +
+        `FROM contacts t WHERE t.customer_id = c.id), ''))`;
+      const rebuild = (rowidExpr: string, idExpr: string) =>
+        `DELETE FROM customer_search WHERE rowid = ${rowidExpr};\n` +
+        `INSERT INTO customer_search(rowid, customer_id, body) ` +
+        `SELECT c.rowid, c.id, ${body()} FROM customers c WHERE c.id = ${idExpr};`;
+      const conId = (prefix: "new" | "old") => `${prefix}.customer_id`;
+      const conRowid = (prefix: "new" | "old") =>
+        `(SELECT rowid FROM customers WHERE id = ${prefix}.customer_id)`;
+
+      db.exec(`
+        -- 常用筛选 / 稳定排序的组合索引（org 内、排除回收站）
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_updated
+          ON customers(org_id, deleted_at, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_stage
+          ON customers(org_id, deleted_at, stage, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_owner
+          ON customers(org_id, deleted_at, owner_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_country
+          ON customers(org_id, deleted_at, country, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_website
+          ON customers(org_id, deleted_at, website_key);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_norm
+          ON customers(org_id, deleted_at, company_norm);
+        CREATE INDEX IF NOT EXISTS idx_customers_scope_visibility
+          ON customers(org_id, deleted_at, visibility, owner_id);
+
+        -- 标签规范化表：把 json_each(c.tags) 的 EXISTS 子查询换成覆盖索引查找
+        CREATE TABLE IF NOT EXISTS customer_tags (
+          customer_id TEXT NOT NULL,
+          tag_key TEXT NOT NULL,
+          PRIMARY KEY (customer_id, tag_key),
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_customer_tags_key ON customer_tags(tag_key, customer_id);
+        INSERT OR IGNORE INTO customer_tags(customer_id, tag_key)
+          SELECT c.id, lower(trim(j.value)) FROM customers c,
+            json_each(CASE WHEN json_valid(c.tags) THEN c.tags ELSE '[]' END) j
+          WHERE trim(j.value) <> '';
+        CREATE TRIGGER IF NOT EXISTS customer_tags_c_ai AFTER INSERT ON customers BEGIN
+          INSERT OR IGNORE INTO customer_tags(customer_id, tag_key)
+            SELECT new.id, lower(trim(j.value)) FROM
+              json_each(CASE WHEN json_valid(new.tags) THEN new.tags ELSE '[]' END) j
+            WHERE trim(j.value) <> '';
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_tags_c_au AFTER UPDATE OF tags ON customers BEGIN
+          DELETE FROM customer_tags WHERE customer_id = old.id;
+          INSERT OR IGNORE INTO customer_tags(customer_id, tag_key)
+            SELECT new.id, lower(trim(j.value)) FROM
+              json_each(CASE WHEN json_valid(new.tags) THEN new.tags ELSE '[]' END) j
+            WHERE trim(j.value) <> '';
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_tags_c_ad AFTER DELETE ON customers BEGIN
+          DELETE FROM customer_tags WHERE customer_id = old.id;
+        END;
+
+        -- 包含式全文搜索镜像：trigram 让 '%子串%' 也走索引（VIRTUAL TABLE INDEX 0:L1）
+        CREATE VIRTUAL TABLE IF NOT EXISTS customer_search
+          USING fts5(customer_id UNINDEXED, body, tokenize='trigram');
+        INSERT INTO customer_search(rowid, customer_id, body)
+          SELECT c.rowid, c.id, ${body()} FROM customers c;
+      `);
+
+      // 触发器必须在回填之后建，避免回填被重复触发（回填写的是镜像表本身，不触发 customers 上的触发器）。
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS customer_search_c_ai AFTER INSERT ON customers BEGIN
+          ${rebuild("new.rowid", "new.id")}
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_search_c_au AFTER UPDATE ON customers BEGIN
+          ${rebuild("old.rowid", "new.id")}
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_search_c_ad AFTER DELETE ON customers BEGIN
+          DELETE FROM customer_search WHERE rowid = old.rowid;
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_search_t_ai AFTER INSERT ON contacts BEGIN
+          ${rebuild(conRowid("new"), conId("new"))}
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_search_t_au AFTER UPDATE ON contacts BEGIN
+          ${rebuild(conRowid("old"), conId("old"))}
+          ${rebuild(conRowid("new"), conId("new"))}
+        END;
+        CREATE TRIGGER IF NOT EXISTS customer_search_t_ad AFTER DELETE ON contacts BEGIN
+          ${rebuild(conRowid("old"), conId("old"))}
+        END;
+      `);
+    },
+  },
+  {
+    // WhatsApp 快捷回复：每个号自己的常用回复片段，会话里一键填入输入框
+    version: 40,
+    name: "whatsapp_quick_replies",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS whatsapp_quick_replies (
+          id TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL,
+          org_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_wa_quick_owner ON whatsapp_quick_replies(owner_id, position);
+      `);
+    },
+  },
 ];
 
 export interface MigrationOptions {

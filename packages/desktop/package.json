@@ -1,6 +1,6 @@
 {
   "name": "@lulux/desktop",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "private": true,
   "description": "LULUX ETA (LULUX External Trade Agent) desktop shell",
   "author": "koko <kokozenshii0308@gmail.com>",

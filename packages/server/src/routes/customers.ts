@@ -18,6 +18,10 @@ export function customerRoutes(router: Router): void {
     ctx.set('X-Total-Count', String(count))
     ctx.body = csv
   })
+  // 服务端批量事务（本页勾选 / 全部筛选结果），逐项返回失败原因
+  router.post('/api/customers/batch', (ctx) => {
+    ctx.body = customerService.batch(ctx.request.body)
+  })
   router.post('/api/customers/import', (ctx) => {
     ctx.body = customerService.import(ctx.request.body)
   })

@@ -1,5 +1,6 @@
 import { publishSessionEvent } from '../session-hub.js'
 import { rejectPendingForSession } from '../tool-approval.js'
+import { browserChannel } from './channel.js'
 
 /**
  * 内置浏览器的运行控制（docs/browser-use.md「服务端（工具层）约束」最后一条）：
@@ -61,6 +62,30 @@ export const browserControl = {
     control.steps = 0
     if (control.stopper.signal.aborted) control.stopper = new AbortController()
     wake(control)
+  },
+
+  /**
+   * 运行结束（run-registry.finish 调用）：立即通知桌面端释放内置浏览器租约，
+   * 别的会话不用等租约过期就能使用浏览器；状态条随之收起。
+   * 只认本会话当前这次运行（runId 不符说明已有新运行开始，不能释放）。暂停 / 接管不算结束。
+   */
+  endRun(sessionId: string, runId: string | null = null): void {
+    const control = controls.get(sessionId)
+    if (control && runId !== null && control.runId !== null && control.runId !== runId) return
+    if (control) {
+      control.runId = null
+      // 还在等“继续”的调用随运行结束一起放弃
+      if (control.state === 'paused') control.state = 'running'
+      wake(control)
+    }
+    let channel
+    try {
+      channel = browserChannel()
+      if (!channel.available()) return
+    } catch {
+      return
+    }
+    channel.request({ action: 'release', sessionId }, { timeoutMs: 5_000 }).catch(() => undefined)
   },
 
   /** 本会话当前运行的“停止”信号：用户点停止时中止正在进行的浏览器请求 */

@@ -24,8 +24,8 @@ export interface Toolset {
 export const TOOLSETS: Toolset[] = [
   {
     id: 'crm',
-    label: '客户维护：建/改客户、阶段与标签、跟进记录、负责人、回收站',
-    tools: ['create_customer', 'update_customer', 'add_activity', 'list_activities', 'list_team_members', 'delete_customer', 'list_trash', 'restore_from_trash'],
+    label: '客户维护：建/改客户（含批量）、阶段与标签、跟进记录、负责人、回收站',
+    tools: ['create_customer', 'update_customer', 'add_activity', 'list_activities', 'list_team_members', 'delete_customer', 'batch_update_customers', 'batch_delete_customers', 'list_trash', 'restore_from_trash'],
     intent: /客户|公司|联系人|负责人|跟进记录|阶段|标签|备注|移交|转给|回收站|误删|customer|client|contact|\blead\b|account owner|recycle bin|\btrash\b/i,
   },
   {
@@ -51,6 +51,12 @@ export const TOOLSETS: Toolset[] = [
     label: '出货单证：商业发票、装箱单、原产地证草稿、HS 编码建议',
     tools: ['docs_get', 'docs_update', 'docs_generate', 'hs_suggest'],
     intent: /单证|发票|装箱单|箱单|原产地|产地证|报关|唛头|毛重|净重|\bHS\b|hs\s*code|hs编码|commercial invoice|packing list|certificate of origin|\bC\/O\b|customs declaration/i,
+  },
+  {
+    id: 'whatsapp',
+    label: 'WhatsApp：查会话、读消息、起草回复（不发送）、发消息（每次批准）',
+    tools: ['whatsapp_conversations', 'whatsapp_read_messages', 'whatsapp_draft_reply', 'whatsapp_send_message'],
+    intent: /whats\s*app|\bWA\b|聊天记录|发消息|回消息/i,
   },
   {
     id: 'tasks',

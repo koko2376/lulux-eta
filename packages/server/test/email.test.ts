@@ -4,8 +4,39 @@ import type { AddressInfo } from 'node:net'
 import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import { SMTPServer } from 'smtp-server'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { parseSse, startTestServer, TEST_TOKEN, type TestServer } from './helpers.js'
+
+/** 1×1 透明 PNG（真实魔数） */
+const { STUB_PNG_BASE64 } = vi.hoisted(() => ({
+  STUB_PNG_BASE64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+}))
+
+/**
+ * 代理模块只替身“公网下载”这一层：cdn.fictional.example 返回固定 PNG，
+ * 其他地址仍走真实实现（含 DNS / 内网拦截），这样路由与 SSRF 行为都还是真实代码。
+ */
+vi.mock('../src/services/email/remote-image-proxy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/services/email/remote-image-proxy.js')>()
+  const png = Buffer.from(STUB_PNG_BASE64, 'base64')
+  return {
+    ...actual,
+    remoteImageProxy: {
+      ...actual.remoteImageProxy,
+      fetch: async (url: string) => {
+        if (new URL(url).hostname === 'cdn.fictional.example') {
+          return {
+            buffer: png,
+            contentType: 'image/png',
+            dataUrl: `data:image/png;base64,${STUB_PNG_BASE64}`,
+            expiresAt: Date.now() + 60_000,
+          }
+        }
+        return actual.remoteImageProxy.fetch(url)
+      },
+    },
+  }
+})
 
 const require = createRequire(import.meta.url)
 // hoodiecrow-imap（MIT）：进程内可编程 IMAP 测试服务
@@ -84,6 +115,78 @@ Content-Type: text/plain
 
 too old
 `)
+
+/* ── 图片样本（全部为虚构域名与 1×1 测试图，不含真实数据） ── */
+
+const IMAGE_MAIL = crlf(`From: Fictional Supplier <sales@fictional-supplier.example>
+To: Me <${USER}>
+Subject: Product photo and packing list
+Message-ID: <img-1@fictional-supplier.example>
+Date: ${date(1)}
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel1"
+
+--rel1
+Content-Type: multipart/alternative; boundary="alt1"
+
+--alt1
+Content-Type: text/plain; charset=utf-8
+
+Please find the product photo below. Reply for a quotation.
+
+--alt1
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>Please find the product photo below.</p>
+<img src="cid:Product%40Fictional-Supplier.EXAMPLE" alt="product">
+<img src="https://cdn.fictional.example/a.png" alt="remote">
+<img srcset="https://cdn.fictional.example/a.png 1x, https://cdn.fictional.example/b.png 2x" alt="responsive">
+<img src="https://cdn.fictional.example/pixel.gif" width="1" height="1" alt="">
+</body></html>
+--alt1--
+
+--rel1
+Content-Type: image/png
+Content-ID: <Product@Fictional-Supplier.EXAMPLE>
+Content-Disposition: inline; filename="product.png"
+Content-Transfer-Encoding: base64
+
+${STUB_PNG_BASE64}
+--rel1--
+`)
+
+const BAD_CID_MAIL = crlf(`From: Fictional Design <design@fictional-design.example>
+To: ${USER}
+Subject: Layout with one broken cid
+Message-ID: <badcid-1@fictional-design.example>
+Date: ${date(1)}
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>before image</p><img src="cid:missing@nowhere.example" alt="missing"><p>after image</p></body></html>
+`)
+
+const HTML_ONLY_MAIL = crlf(`From: Fictional Ops <ops@fictional-ops.example>
+To: ${USER}
+Subject: HTML only notice
+Message-ID: <htmlonly-1@fictional-ops.example>
+Date: ${date(1)}
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>HTML only body</p><img src="https://cdn.fictional.example/a.png" alt="remote"></body></html>
+`)
+
+/** 用注释填充 HTML 字节数，避免把大段正文带进评分/搜索（正文文本仍是空的） */
+function paddedHtmlMail(messageId: string, subject: string, padding: number): string {
+  return crlf(`From: Fictional Ops <ops@fictional-ops.example>
+To: ${USER}
+Subject: ${subject}
+Message-ID: <${messageId}>
+Date: ${date(1)}
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>${subject}</p><!--${'x'.repeat(padding)}--></body></html>
+`)
+}
 
 function startImap(): Promise<void> {
   imap = hoodiecrow({
@@ -502,7 +605,8 @@ describe('Agent 内置业务工具', () => {
     expect(result?.data.result).toContain('ACME Valves GmbH')
     const tools = llmRequests.at(-2)!.tools!.map((t) => t.function.name)
     expect(tools).toEqual(expect.arrayContaining(['search_customers', 'get_customer', 'create_customer', 'create_quote_draft', 'search_emails', 'create_email_draft']))
-    expect(tools.some((name) => /send/i.test(name))).toBe(false)
+    // 邮件没有发送工具；唯一带 send 的是 WhatsApp 发消息，且每次都要人工批准
+    expect(tools.filter((name) => /send/i.test(name))).toEqual(['whatsapp_send_message'])
   })
 
   it('write 工具走审批：拒绝则不创建；批准后只建草稿，不会发送', async () => {
@@ -636,6 +740,156 @@ describe('OAuth2（PKCE + 回环回调 + XOAUTH2 + 自动刷新）', () => {
     expect(res.json.error.code).toBe('EMAIL_REAUTH_REQUIRED')
     const account = (await server.request('GET', '/api/email/accounts')).json.find((a: { id: string }) => a.id === oauthAccountId)
     expect(account.status.state).toBe('needs_reauth')
+  })
+})
+
+describe('邮件图片：CID 内联、远程图受控加载、正文上限', () => {
+  const found: Record<string, string> = {}
+
+  async function appendToInbox(raw: string): Promise<void> {
+    const client = new ImapFlow({ host: '127.0.0.1', port: imapPort, secure: false, auth: { user: USER, pass: PASS }, logger: false })
+    await client.connect()
+    await client.append('INBOX', raw)
+    await client.logout()
+  }
+
+  async function inboxIds(): Promise<Record<string, string>> {
+    const list = await server.request('GET', '/api/email/messages?folder=inbox')
+    const map: Record<string, string> = {}
+    for (const item of list.json.items as Array<{ id: string; messageId: string }>) map[item.messageId] = item.id
+    return map
+  }
+
+  it('同步图片样本：CID、坏 CID、HTML-only、超过 2 MB 的 HTML', async () => {
+    await appendToInbox(IMAGE_MAIL)
+    await appendToInbox(BAD_CID_MAIL)
+    await appendToInbox(HTML_ONLY_MAIL)
+    // 2.1 MB HTML：超过默认 2 MB 上限，应在同步时只保留纯文本并标记截断
+    await appendToInbox(paddedHtmlMail('large-over@fictional-ops.example', 'Large html over default', 2_100_000))
+    // 300 KB HTML：默认上限内保留，作为阈值可配置的对照
+    await appendToInbox(paddedHtmlMail('large-mid@fictional-ops.example', 'Large html mid', 300_000))
+    const sync = await api('POST', `/api/email/accounts/${accountId}/sync`, { wait: true })
+    expect(sync.status, sync.text).toBe(200)
+    expect(sync.json.newMessages).toBe(5)
+    Object.assign(found, await inboxIds())
+  }, 60_000)
+
+  it('CID 内联图转 data URL；远程图默认只留 data-blocked-src；CSP 不放宽', async () => {
+    const id = found['<img-1@fictional-supplier.example>']!
+    expect(id).toBeTruthy()
+    const detail = (await server.request('GET', `/api/email/messages/${id}`)).json
+    expect(detail).toMatchObject({
+      hasHtml: true,
+      truncated: false,
+      remoteImages: { hasRemote: true, allowed: false },
+    })
+    expect(detail.text).toContain('Please find the product photo below.')
+    expect(detail.attachments).toHaveLength(1)
+    // mailparser 去掉 Content-ID 的尖括号，CID 匹配由 normalizeCid 负责大小写与编码
+    expect(detail.attachments[0]).toMatchObject({ filename: 'product.png', contentId: 'Product@Fictional-Supplier.EXAMPLE', inline: true })
+
+    const html = await server.request('GET', `/api/email/messages/${id}/html`)
+    expect(html.status, html.text).toBe(200)
+    expect(html.headers['content-security-policy']).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+    expect(html.headers['x-content-type-options']).toBe('nosniff')
+    expect(html.headers['cache-control']).toBe('no-store')
+    // CID 大小写 / 百分号编码都能匹配同一张内联图
+    expect(html.text).toContain(`src="data:image/png;base64,${STUB_PNG_BASE64}"`)
+    // 远程图与 srcset 都只保留被拦截地址，不出现可加载的 http(s) src
+    expect(html.text).not.toMatch(/\ssrc="https?:/i)
+    expect(html.text).toContain('data-blocked-src="https://cdn.fictional.example/a.png"')
+    expect(html.text).toContain('data-blocked-src="https://cdn.fictional.example/pixel.gif"')
+    expect(html.text).not.toContain('srcset=')
+    expect(html.text).toContain('Please find the product photo below.')
+  })
+
+  it('未开启「显示远程图片」时 ?remote=1 拒绝；开启后经代理内联，关闭后再次拒绝', async () => {
+    const id = found['<img-1@fictional-supplier.example>']!
+    const denied = await server.request('GET', `/api/email/messages/${id}/html?remote=1`)
+    expect(denied.status).toBe(403)
+    expect(denied.json.error.code).toBe('REMOTE_IMAGES_NOT_ALLOWED')
+
+    const allow = await api('PUT', `/api/email/messages/${id}/remote-images`, { allow: true })
+    expect(allow.json).toEqual({ allowed: true })
+    expect((await server.request('GET', `/api/email/messages/${id}`)).json.remoteImages).toEqual({ hasRemote: true, allowed: true })
+
+    const shown = await server.request('GET', `/api/email/messages/${id}/html?remote=1`)
+    expect(shown.status, shown.text).toBe(200)
+    expect(shown.headers['content-security-policy']).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+    expect(shown.text.match(/src="data:image\/png;base64,/g)?.length).toBeGreaterThanOrEqual(4) // CID + 远程图 + 追踪像素 + srcset 回退
+    expect(shown.text).not.toContain('data-blocked-src="https://cdn.fictional.example')
+    // 放行后 srcset 换成代理返回的 data URL，并保留首个候选作为 src 回退
+    expect(shown.text).toContain('srcset="data:image/png;base64,')
+    expect(shown.text).not.toMatch(/srcset="https?:/i)
+
+    const deny = await api('PUT', `/api/email/messages/${id}/remote-images`, { allow: false })
+    expect(deny.json).toEqual({ allowed: false })
+    expect((await server.request('GET', `/api/email/messages/${id}/html?remote=1`)).status).toBe(403)
+  })
+
+  it('坏 CID 不破坏正文排版', async () => {
+    const id = found['<badcid-1@fictional-design.example>']!
+    const html = await server.request('GET', `/api/email/messages/${id}/html`)
+    expect(html.status, html.text).toBe(200)
+    expect(html.text).toContain('<p>before image</p>')
+    expect(html.text).toContain('<p>after image</p>')
+    expect(html.text).toContain('data-blocked-src="cid:missing@nowhere.example"')
+    expect(html.text).not.toMatch(/\ssrc="cid:/)
+  })
+
+  it('HTML-only 邮件有 HTML 正文与派生纯文本', async () => {
+    const id = found['<htmlonly-1@fictional-ops.example>']!
+    const detail = (await server.request('GET', `/api/email/messages/${id}`)).json
+    expect(detail).toMatchObject({ hasHtml: true, truncated: false, remoteImages: { hasRemote: true, allowed: false } })
+    expect(detail.text).toContain('HTML only body')
+    expect((await server.request('GET', `/api/email/messages/${id}/html`)).text).toContain('HTML only body')
+  })
+
+  it('超过默认 2 MB 的 HTML 同步时置空并标记截断', async () => {
+    const over = (await server.request('GET', `/api/email/messages/${found['<large-over@fictional-ops.example>']!}`)).json
+    expect(over).toMatchObject({ hasHtml: false, truncated: true })
+    const noHtml = await server.request('GET', `/api/email/messages/${found['<large-over@fictional-ops.example>']!}/html`)
+    expect(noHtml.status).toBe(404)
+    expect(noHtml.json.error.code).toBe('NO_HTML')
+    // 对照：同一批 300 KB 的 HTML 在默认上限内保留
+    const mid = (await server.request('GET', `/api/email/messages/${found['<large-mid@fictional-ops.example>']!}`)).json
+    expect(mid).toMatchObject({ hasHtml: true, truncated: false })
+  }, 30_000)
+
+  it('阈值可配置：调低后新同步的超限 HTML 被截断，恢复设置后不再影响', async () => {
+    const patched = await api('PATCH', '/api/settings', { emailHtmlMaxBytes: 262_144 })
+    expect(patched.status, patched.text).toBe(200)
+    expect(Number(patched.json.settings.emailHtmlMaxBytes)).toBe(262_144)
+    try {
+      await appendToInbox(paddedHtmlMail('large-low@fictional-ops.example', 'Large html low threshold', 300_000))
+      const sync = await api('POST', `/api/email/accounts/${accountId}/sync`, { wait: true })
+      expect(sync.status, sync.text).toBe(200)
+      expect(sync.json.newMessages).toBe(1)
+      const id = (await inboxIds())['<large-low@fictional-ops.example>']!
+      expect(id).toBeTruthy()
+      const detail = (await server.request('GET', `/api/email/messages/${id}`)).json
+      expect(detail).toMatchObject({ hasHtml: false, truncated: true })
+      expect((await server.request('GET', `/api/email/messages/${id}/html`)).json.error.code).toBe('NO_HTML')
+    } finally {
+      const restored = await api('PATCH', '/api/settings', { emailHtmlMaxBytes: 2_097_152 })
+      expect(restored.status, restored.text).toBe(200)
+    }
+  }, 60_000)
+
+  it('图片代理路由：放行图返回 PNG；本机地址与非法协议被拒', async () => {
+    const ok = await server.request('GET', `/api/email/image-proxy?url=${encodeURIComponent('https://cdn.fictional.example/a.png')}`)
+    expect(ok.status, ok.text.slice(0, 80)).toBe(200)
+    expect(ok.headers['content-type']).toBe('image/png')
+    expect(ok.headers['content-length']).toBe(String(Buffer.from(STUB_PNG_BASE64, 'base64').length))
+    expect(ok.headers['x-content-type-options']).toBe('nosniff')
+    expect(ok.headers['cache-control']).toBe('private, max-age=300')
+
+    const local = await server.request('GET', `/api/email/image-proxy?url=${encodeURIComponent('http://127.0.0.1:1/a.png')}`)
+    expect(local.status).toBe(400)
+    expect(local.json.error.code).toBe('IMAGE_URL_BLOCKED')
+    const bad = await server.request('GET', `/api/email/image-proxy?url=${encodeURIComponent('file:///etc/passwd')}`)
+    expect(bad.status).toBe(400)
+    expect(bad.json.error.code).toBe('IMAGE_URL_INVALID')
   })
 })
 

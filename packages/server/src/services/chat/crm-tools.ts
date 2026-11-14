@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { currentActor } from '../../context.js'
 import { isServerMode, type Permission } from '../../security/access.js'
 import { teamService } from '../auth-service.js'
-import { ACTIVITY_TYPES, CUSTOMER_STAGES, customerService, type Customer, type CustomerDuplicate } from '../customer-service.js'
+import { ACTIVITY_TYPES, BATCH_ID_LIMIT, CUSTOMER_STAGES, customerService, type Customer, type CustomerDuplicate } from '../customer-service.js'
 import { AppError } from '../../errors.js'
 import { messageService } from '../email/message-service.js'
 import { renderQuotePdf } from '../email/quote-pdf.js'
@@ -31,6 +31,8 @@ export interface CrmTool extends ToolDefinition {
   permissions?: Permission[]
   /** 删除类：需审批时每次都确认，不提供“本会话始终允许” */
   approval?: 'always'
+  /** 不可撤回的对外操作（如发 WhatsApp 消息）：即使“完全权限”也逐次确认 */
+  orgLevel?: boolean
   noRemember?: boolean
   run(args: Record<string, unknown>, ctx?: ToolContext): Promise<unknown> | unknown
 }
@@ -168,6 +170,101 @@ function deleteTool(input: {
     },
   }
 }
+
+/** 批量工具共用的目标描述（勾选的 id，或与客户列表相同的筛选条件） */
+const batchTargetSchema = {
+  customerIds: { type: 'array', items: { type: 'string' }, maxItems: BATCH_ID_LIMIT, description: `要处理的客户 id（最多 ${BATCH_ID_LIMIT} 个）；与 filters 二选一` },
+  filters: {
+    type: 'object',
+    description: '按筛选条件处理全部匹配客户（最多 2000 个，超出会被拒绝）；与 customerIds 二选一',
+    properties: {
+      query: { type: 'string' },
+      stage: { type: 'string', enum: [...CUSTOMER_STAGES] },
+      tag: { type: 'string' },
+      country: { type: 'string' },
+      ownerId: { type: 'string' },
+    },
+  },
+} as const
+
+const batchTarget = z
+  .object({
+    customerIds: z.array(id).min(1).max(BATCH_ID_LIMIT).optional(),
+    filters: z
+      .object({
+        query: z.string().max(200).optional(),
+        stage: z.enum(CUSTOMER_STAGES).optional(),
+        tag: z.string().max(50).optional(),
+        country: z.string().max(100).optional(),
+        ownerId: id.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .refine((v) => Boolean(v.customerIds) !== Boolean(v.filters), { message: 'customerIds 与 filters 必须且只能给一个' })
+
+function batchRequest(target: z.infer<typeof batchTarget>) {
+  return target.customerIds
+    ? { scope: 'page' as const, ids: target.customerIds }
+    : { scope: 'all' as const, filters: target.filters ?? {} }
+}
+
+/** 批量结果给 Agent：成功数 + 逐项失败（id、错误码、原因），便于如实转告用户 */
+function batchReport(result: ReturnType<typeof customerService.batch>) {
+  return { total: result.total, succeeded: result.succeeded, failed: result.failed }
+}
+
+const BATCH_TOOLS: CrmTool[] = [
+  {
+    name: 'batch_update_customers',
+    description:
+      '批量修改客户：改阶段（stage）、分配负责人（assign，ownerId 用 list_team_members 查）、加标签（addTag）、去标签（removeTag）。一次一个事务，单个客户失败不影响其他，返回逐项失败原因。每次都需要用户批准。',
+    risk: 'write',
+    approval: 'always',
+    noRemember: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['stage', 'assign', 'addTag', 'removeTag'] },
+        stage: { type: 'string', enum: [...CUSTOMER_STAGES], description: 'action=stage 时必填' },
+        ownerId: { type: 'string', description: 'action=assign 时必填' },
+        tag: { type: 'string', description: 'action=addTag/removeTag 时必填' },
+        ...batchTargetSchema,
+      },
+      required: ['action'],
+    },
+    run(args) {
+      const { action, stage, ownerId, tag, ...rest } = z
+        .object({
+          action: z.enum(['stage', 'assign', 'addTag', 'removeTag']),
+          stage: z.enum(CUSTOMER_STAGES).optional(),
+          ownerId: id.optional(),
+          tag: z.string().trim().min(1).max(50).optional(),
+          customerIds: z.unknown().optional(),
+          filters: z.unknown().optional(),
+        })
+        .strict()
+        .parse(args)
+      const target = batchTarget.parse(rest)
+      const params = { ...(stage ? { stage } : {}), ...(ownerId ? { ownerId } : {}), ...(tag ? { tag } : {}) }
+      return batchReport(customerService.batch({ action, ...batchRequest(target), params }))
+    },
+  },
+  {
+    name: 'batch_delete_customers',
+    description:
+      '批量删除客户（进回收站可恢复）。名下有订单、收款、报价或商机的客户会被跳过并列在失败里。每次都需要用户批准；账号没有删除客户权限时会被拒绝。',
+    risk: 'write',
+    permissions: ['customer:delete'],
+    approval: 'always',
+    noRemember: true,
+    inputSchema: { type: 'object', properties: { ...batchTargetSchema } },
+    run(args) {
+      const target = batchTarget.parse(args)
+      return batchReport(customerService.batch({ action: 'delete', ...batchRequest(target) }))
+    },
+  },
+]
 
 const DELETE_TOOLS: CrmTool[] = [
   deleteTool({
@@ -855,5 +952,6 @@ export const CRM_TOOLS: CrmTool[] = [
     },
   },
   ...DELETE_TOOLS,
+  ...BATCH_TOOLS,
   ...TRASH_TOOLS,
 ]

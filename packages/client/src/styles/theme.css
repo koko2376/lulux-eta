@@ -40,6 +40,9 @@ body {
 .app-side {
   --as-w: 280px;
   width: var(--as-w);
+  /* 底栏栅格按侧栏自身宽度切换（查询 .app-side，不能查询 .as-nav 自己） */
+  container-type: inline-size;
+  container-name: sidebar;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -163,11 +166,11 @@ body {
   border-right: 0;
 }
 
-/* 底部 6 个主入口：一排胶囊图标 + 小字，收起时竖排 */
+/* 底部 7 个主入口：一排胶囊图标 + 小字，收起时竖排 */
 .as-nav {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 2px;
   padding: 6px 8px 4px;
   border-top: 1px solid var(--line-faint);
@@ -239,6 +242,47 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px var(--sidebar);
 }
+/* 99+：加宽胶囊容纳 3 个字符，高度与描边保持不变 */
+.as-badge.wide {
+  min-width: 24px;
+  padding: 0 5px;
+}
+/* WhatsApp 连接状态点：图标胶囊左下角，与右上角未读角标不重叠 */
+.as-state-dot {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-quaternary);
+  box-shadow: 0 0 0 2px var(--sidebar);
+  z-index: 1;
+}
+.as-state-dot.connected {
+  background: var(--good);
+}
+.as-state-dot.connecting {
+  background: var(--warn-text);
+}
+.as-state-dot.disconnected {
+  background: var(--text-quaternary);
+}
+.as-state-dot.reauth {
+  background: var(--danger);
+}
+/* 窄容器（<425px）兜底：4 + 3 两行，底栏 +52px；折叠态永远单列，不参与 */
+@container sidebar (max-width: 424px) {
+  .app-side:not(.collapsed) .as-nav {
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .app-side:not(.collapsed) .as-nav-item:nth-child(-n + 4) {
+    grid-column: span 3;
+  }
+  .app-side:not(.collapsed) .as-nav-item:nth-child(n + 5) {
+    grid-column: span 4;
+  }
+}
 .app-side.collapsed .as-nav {
   grid-template-columns: 1fr;
   padding: 6px 10px;
@@ -254,6 +298,11 @@ body {
 .app-side.collapsed .as-nav-ico {
   width: 40px;
   height: 36px;
+}
+/* 仓库原先没有通用的折叠态角标规则；只给 99+ 胶囊补覆盖，避免改动邮箱角标 */
+.app-side.collapsed .as-badge.wide {
+  right: -2px;
+  top: -2px;
 }
 
 .as-foot {

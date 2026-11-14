@@ -77,7 +77,7 @@ describe('技能列表辅助函数', () => {
     ).toBe('github.com/NousResearch/hermes-agent @ 1f91fb3')
     expect(originLabel(skill())).toBe('LULUX 安装包')
     expect(originLabel(skill({ source: 'imported', origin: 'zip:my.zip' }))).toBe('上传的 my.zip')
-    expect(originLabel(skill({ source: 'agent', origin: 'agent' }))).toBe('Agent 在对话中创建')
+    expect(originLabel(skill({ source: 'agent', origin: 'agent' }))).toBe('LULUX 在对话中创建')
     expect(originLabel(skill({ source: 'user', origin: 'folder:/tmp/x' }))).toBe('本机文件夹 /tmp/x')
   })
 

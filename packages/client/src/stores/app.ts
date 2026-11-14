@@ -1,20 +1,27 @@
 import { sessionModelKernel, type EffortLevel, type ModelCatalog } from '../lib/models'
 import { defaultLevelFromSettings, effectiveLevel, type PermissionInfo, type PermissionLevel } from '../lib/permissions'
+import { watch } from 'vue'
 import { defineStore, getActivePinia } from 'pinia'
 import * as api from '../api'
 import { sessionFileUrl } from '../api/skills'
 import { localized, t, withParen } from '../i18n'
 import {
+  DRAFTS_BASE_KEY,
   draftKey,
   emptyDraft,
   isEmptyDraft,
   mergeDrafts,
+  packDrafts,
+  unpackDrafts,
   type ComposerAttachment,
+  type DraftSnapshotEntry,
   type ReturnedDraft,
   type SessionDraft,
 } from '../lib/composer-draft'
-import { onAccountReset } from '../lib/session'
+import { onAccountReset, onSignOut } from '../lib/session'
+import { scopedKey, storageScopeHash } from '../lib/storage-scope'
 import { clearSessionImageCache } from '../lib/session-images'
+import { toast } from './ui'
 import { resetBrowserAgent } from './browser-agent'
 import { resetComputerAgent } from './computer-agent'
 import { isGroupSession } from '../lib/session-name'
@@ -62,6 +69,22 @@ function waitForNetwork(delayMs: number): Promise<void> {
 onAccountReset(() => {
   const pinia = getActivePinia()
   if (pinia) useAppStore(pinia).resetForAccountSwitch()
+})
+
+// 换账号 / 换服务器：草稿表换成那个作用域落盘的那份（上一个账号的留在它自己的 key 里）
+watch(
+  storageScopeHash,
+  () => {
+    const pinia = getActivePinia()
+    if (pinia) useAppStore(pinia).hydrateDrafts()
+  },
+  { flush: 'sync' },
+)
+
+// 主动退出登录：删掉这个账号留在这台电脑上的输入框草稿（共享电脑隐私；会话过期 / 换服务器不算）
+onSignOut(() => {
+  const pinia = getActivePinia()
+  if (pinia) useAppStore(pinia).purgeDrafts()
 })
 
 /** 发消息前校验失败时，告诉用户去哪里解决 */
@@ -228,6 +251,16 @@ export function sessionSelectPending(): boolean {
 }
 let selectPending = 0
 
+/** 读某个作用域落盘的草稿表（损坏 / 不可用都当空） */
+function readStoredDrafts(hash: string): Record<string, SessionDraft> {
+  try {
+    if (typeof localStorage === 'undefined') return {}
+    return unpackDrafts(localStorage.getItem(scopedKey(DRAFTS_BASE_KEY, hash)))
+  } catch {
+    return {}
+  }
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     sessions: [] as api.Session[],
@@ -265,7 +298,15 @@ export const useAppStore = defineStore('app', {
     /** 请求未被服务端接受时退回给输入框的草稿（用户原文 + 原附件；只填回它所属的会话） */
     failedDraft: null as ReturnedDraft | null,
     /** 按会话保存的输入框草稿（不在看的会话；正在看的会话由输入框自己持有） */
-    drafts: {} as Record<string, SessionDraft>,
+    drafts: readStoredDrafts(storageScopeHash.value),
+    /** 草稿落盘用的当前作用域 hash（换账号 / 服务器后换 key；'' = 还没同步） */
+    draftsScope: storageScopeHash.value as string,
+    /** 每份草稿最后一次改动时间（超预算时先丢最久没动过的） */
+    draftAt: {} as Record<string, number>,
+    /** 正在看的会话里那一份草稿：刷新 / 关窗后靠它恢复（发送成功、切走时清掉） */
+    liveDraft: null as { sessionId: string | null; draft: SessionDraft; at: number } | null,
+    /** 本机存不下草稿（隐私模式 / 配额满）：降级为只在内存里记，已经提示过一次 */
+    draftsMemoryOnly: false,
     /** 最近一次在本窗口新建的会话：从“还没有会话”的新对话进入它时，输入框的草稿跟过去 */
     createdSessionId: null as string | null,
     /** 账户切换计数（退出登录 / 会话失效 / 换账号时递增），输入框据此丢掉上一个账号的草稿 */
@@ -380,27 +421,124 @@ export const useAppStore = defineStore('app', {
       creatingSession = null
       for (const draft of Object.values(this.drafts)) revokePreviews(draft.attachments)
       if (this.failedDraft) revokePreviews(this.failedDraft.attachments)
+      if (this.liveDraft) revokePreviews(this.liveDraft.draft.attachments)
       this.$reset()
       this.accountEpoch = accountEpoch
+      // 换成新作用域里落盘的草稿（上一个账号的留在它自己的 key 里）
+      this.hydrateDrafts()
       resetBrowserAgent()
       resetComputerAgent()
       clearSessionImageCache()
+    },
+
+    /* ── 草稿落盘：刷新 / 关窗 / 切账号后不丢，按“账号 + 服务器”分作用域 ── */
+
+    /** 换作用域：把草稿表换成那个账号 / 服务器落盘的那份 */
+    hydrateDrafts(): void {
+      const hash = storageScopeHash.value
+      if (hash === this.draftsScope) return
+      this.draftsScope = hash
+      this.drafts = readStoredDrafts(hash)
+      this.draftAt = {}
+      this.liveDraft = null
+    },
+
+    /** 把草稿表（含正在看的会话那一份）写进本机存储；超预算先丢最久没动过的 */
+    persistDrafts(): void {
+      const entries: DraftSnapshotEntry[] = []
+      for (const [key, draft] of Object.entries(this.drafts)) {
+        if (isEmptyDraft(draft)) continue
+        entries.push({ key, draft, at: this.draftAt[key] ?? 0 })
+      }
+      const live = this.liveDraft
+      if (live && !isEmptyDraft(live.draft)) {
+        const key = draftKey(live.sessionId)
+        const index = entries.findIndex((entry) => entry.key === key)
+        if (index >= 0) entries.splice(index, 1)
+        entries.push({ key, draft: live.draft, at: live.at })
+      }
+      const { raw } = packDrafts(entries)
+      try {
+        localStorage.setItem(scopedKey(DRAFTS_BASE_KEY, storageScopeHash.value), raw)
+      } catch {
+        if (!this.draftsMemoryOnly) {
+          this.draftsMemoryOnly = true
+          toast.info(t('composer.draftsMemoryOnly'))
+        }
+      }
+    },
+
+    /** 记住输入框里正在写的草稿（刷新 / 关窗后恢复它） */
+    rememberLiveDraft(sessionId: string | null, draft: SessionDraft): void {
+      if (sessionId && deletedIds.has(sessionId)) return
+      this.liveDraft = {
+        sessionId,
+        draft: { text: draft.text, attachments: [...draft.attachments], refs: [...draft.refs] },
+        at: Date.now(),
+      }
+      this.persistDrafts()
+    },
+
+    /** 输入框该显示的那份草稿：正在写的优先，其次草稿表里落盘的那份 */
+    liveDraftFor(sessionId: string | null): SessionDraft | null {
+      const live = this.liveDraft
+      if (!live || draftKey(live.sessionId) !== draftKey(sessionId)) return null
+      return { text: live.draft.text, attachments: [...live.draft.attachments], refs: [...live.draft.refs] }
+    },
+
+    /** 发送成功 / 切走：输入框里那一份不再是“正在写”的草稿 */
+    clearLiveDraft(): void {
+      if (!this.liveDraft) return
+      this.liveDraft = null
+      this.persistDrafts()
+    },
+
+    /** 退出登录：删掉这个账号留在这台电脑上的草稿（共享电脑隐私） */
+    purgeDrafts(): void {
+      this.liveDraft = null
+      try {
+        localStorage.removeItem(scopedKey(DRAFTS_BASE_KEY, storageScopeHash.value))
+      } catch {
+        /* 存储不可用：本来就没写进去 */
+      }
+    },
+
+    /** 会话被删除 / 失去访问权：它的草稿一起删掉（内存与落盘都清） */
+    forgetDraft(sessionId: string): void {
+      const key = draftKey(sessionId)
+      const draft = this.drafts[key]
+      if (draft) revokePreviews(draft.attachments)
+      delete this.drafts[key]
+      delete this.draftAt[key]
+      if (this.liveDraft && draftKey(this.liveDraft.sessionId) === key) {
+        revokePreviews(this.liveDraft.draft.attachments)
+        this.liveDraft = null
+      }
+      this.persistDrafts()
     },
 
     /** 把一个会话的草稿存进草稿表（空草稿则删掉该项；已删除的会话不再保存） */
     stashDraft(sessionId: string | null, draft: SessionDraft): void {
       const key = draftKey(sessionId)
       if (sessionId && deletedIds.has(sessionId)) return
+      if (this.liveDraft && draftKey(this.liveDraft.sessionId) === key) this.liveDraft = null
       if (isEmptyDraft(draft)) delete this.drafts[key]
-      else this.drafts[key] = { text: draft.text, attachments: [...draft.attachments], refs: [...draft.refs] }
+      else {
+        this.drafts[key] = { text: draft.text, attachments: [...draft.attachments], refs: [...draft.refs] }
+        this.draftAt[key] = Date.now()
+      }
+      this.persistDrafts()
     },
 
-    /** 取出（并移出草稿表）某个会话的草稿 */
+    /** 取出（并移出草稿表）某个会话的草稿；调用方负责把它记成“正在写”的草稿 */
     takeDraft(sessionId: string | null): SessionDraft {
       const key = draftKey(sessionId)
       const draft = this.drafts[key]
       delete this.drafts[key]
-      return draft ? { text: draft.text, attachments: [...draft.attachments], refs: [...draft.refs] } : emptyDraft()
+      delete this.draftAt[key]
+      const taken = draft ? { text: draft.text, attachments: [...draft.attachments], refs: [...draft.refs] } : emptyDraft()
+      this.persistDrafts()
+      return taken
     },
 
     /** 往不在看的会话的草稿里加一个附件（上传途中切走了会话），返回响应式的那一项 */
@@ -409,6 +547,8 @@ export const useAppStore = defineStore('app', {
       if (!this.drafts[key]) this.drafts[key] = emptyDraft()
       const list = this.drafts[key].attachments
       list.push(attachment)
+      this.draftAt[key] = Date.now()
+      this.persistDrafts()
       return list[list.length - 1]
     },
 
@@ -428,6 +568,8 @@ export const useAppStore = defineStore('app', {
       const existing = this.drafts[key]
       if (sessionId && deletedIds.has(sessionId)) return
       this.drafts[key] = existing ? mergeDrafts(draft, existing) : { ...draft }
+      this.draftAt[key] = Date.now()
+      this.persistDrafts()
     },
 
     /** 输入框还没取走、会话却已切走的退回草稿：存回它自己会话的草稿表 */
@@ -438,6 +580,8 @@ export const useAppStore = defineStore('app', {
       if (sessionId && deletedIds.has(sessionId)) return
       const existing = this.drafts[key]
       this.drafts[key] = existing ? mergeDrafts(draft, existing) : draft
+      this.draftAt[key] = Date.now()
+      this.persistDrafts()
     },
 
     /** 预填输入框（问 LULUX / 核价入口）：只在当前会话的输入框为空时填入 */
@@ -850,9 +994,7 @@ export const useAppStore = defineStore('app', {
         deletedIds.delete(id)
         throw error
       }
-      const draft = this.drafts[draftKey(id)]
-      if (draft) revokePreviews(draft.attachments)
-      delete this.drafts[draftKey(id)]
+      this.forgetDraft(id)
       this.sessions = this.sessions.filter((session) => session.id !== id)
       if (this.currentSessionId === id) {
         this.currentSessionId = null
@@ -1312,9 +1454,7 @@ export const useAppStore = defineStore('app', {
 
     /** 失去访问权（被移出 / 退出 / 群被解散）：从侧栏去掉，不再请求服务端 */
     dropSession(id: string): void {
-      const draft = this.drafts[draftKey(id)]
-      if (draft) revokePreviews(draft.attachments)
-      delete this.drafts[draftKey(id)]
+      this.forgetDraft(id)
       controllers.get(id)?.abort()
       delete this.runs[id]
       this.stopPolling(id)

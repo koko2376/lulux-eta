@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -516,6 +516,8 @@ describe('通用工具', () => {
     const { db } = await import('../src/db.js')
     expect(JSON.stringify(db.prepare('SELECT value FROM kernel_config').all())).not.toContain('tvly-secret-123456')
     expect((await server.request('PUT', '/api/chat/search-config', { body: { provider: 'searxng' } })).status).toBe(400)
+    // 微软官方 Bing API 已停服：没有网关地址不能选
+    expect((await server.request('PUT', '/api/chat/search-config', { body: { provider: 'bing', apiKey: 'k' } })).status).toBe(400)
     await server.request('PUT', '/api/chat/search-config', { body: { provider: 'none', apiKey: '' } })
     expect(listTools().map((t) => t.name)).not.toContain('web_search')
     // 通用工具开关

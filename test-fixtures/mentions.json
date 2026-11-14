@@ -1,0 +1,46 @@
+{
+  "note": "客户端 @ 识别边界与服务端解析共用的用例表。popover = 客户端在该光标位置是否弹出成员列表（未点完的 @才会弹）；mentions = 服务端 parseMentions 解析出的成员 id。两端测试都读这一份，实现各自校验。",
+  "members": [
+    { "id": "kernel-a", "name": "Alpha（销售）", "kernelName": "Alpha", "role": "销售" },
+    { "id": "kernel-b", "name": "Beta（销售经理）", "kernelName": "Beta", "role": "销售经理" },
+    { "id": "lux", "name": "LULUX #1", "kernelName": "LULUX", "role": "" },
+    { "id": "lux#10", "name": "LULUX #10", "kernelName": "LULUX", "role": "" },
+    { "id": "kernel-claude", "name": "Claude Code（跟单员）", "kernelName": "Claude Code", "role": "跟单员" },
+    {
+      "id": "kernel-long",
+      "name": "超长名字成员一二三四五六七八九十甲乙丙丁戊己庚辛",
+      "kernelName": "超长名字成员一二三四五六七八九十甲乙丙丁戊己庚辛",
+      "role": "长名"
+    }
+  ],
+  "cases": [
+    { "why": "刚敲 @", "text": "@", "popover": true, "mentions": [] },
+    { "why": "开头 @ 加一个字", "text": "@销", "popover": true, "mentions": [] },
+    { "why": "空白后 @", "text": "请 @销", "popover": true, "mentions": [] },
+    { "why": "中文直接接 @（服务端一直认）", "text": "请@销", "popover": true, "mentions": [] },
+    { "why": "中文逗号后 @", "text": "先看报价，@销", "popover": true, "mentions": [] },
+    { "why": "全角冒号后 @", "text": "分工：@销售", "popover": true, "mentions": ["kernel-a"] },
+    { "why": "左括号后 @", "text": "(@销售", "popover": true, "mentions": ["kernel-a"] },
+    { "why": "全角 ＠", "text": "＠销售", "popover": true, "mentions": ["kernel-a"] },
+    { "why": "邮箱 a@b.com 不算", "text": "mail a@b.com", "popover": false, "mentions": [] },
+    { "why": "URL 里的 @ 不算", "text": "https://example.com/@销售", "popover": false, "mentions": [] },
+    { "why": "点完名字后跟空格：列表收起，服务端照常点名", "text": "@销售 看下这个报价", "popover": false, "mentions": ["kernel-a"] },
+    { "why": "互为前缀的长名字", "text": "@销售经理", "popover": true, "mentions": ["kernel-b"] },
+    { "why": "短名字不误点长名字", "text": "@销售", "popover": true, "mentions": ["kernel-a"] },
+    { "why": "两个名字都点到，按出现顺序", "text": "@销售经理 先看，然后 @销售 跟进", "popover": false, "mentions": ["kernel-b", "kernel-a"] },
+    { "why": "同一内核的实例名：#1", "text": "@LULUX #1", "popover": true, "mentions": ["lux"] },
+    { "why": "同一内核的实例名：#10 不会点到 #1", "text": "@LULUX #10", "popover": true, "mentions": ["lux#10"] },
+    { "why": "连续两个 @，光标处只认最近的那个", "text": "@LULUX #1和@LULUX #10", "popover": true, "mentions": ["lux", "lux#10"] },
+    { "why": "数字后缀：@LULUX #11 不是 @LULUX #1 加个 1", "text": "@LULUX #11和@LULUX #2", "popover": false, "mentions": [] },
+    { "why": "#1 后面跟正文不影响解析", "text": "@LULUX #1 你来", "popover": false, "mentions": ["lux"] },
+    { "why": "内核原名点到同内核全部实例", "text": "@LULUX 你们都看看", "popover": false, "mentions": ["lux", "lux#10"] },
+    { "why": "按 id 点名", "text": "@kernel-a 看下", "popover": false, "mentions": ["kernel-a"] },
+    { "why": "id 后面紧跟字母数字不算", "text": "@kernel-a2 看下", "popover": false, "mentions": [] },
+    { "why": "按群头衔点名", "text": "@跟单员", "popover": true, "mentions": ["kernel-claude"] },
+    { "why": "带空格的名字可以一直输入", "text": "@Claude Code", "popover": true, "mentions": ["kernel-claude"] },
+    { "why": "代码围栏里的 @ 不算", "text": "```\n@销售\n```", "popover": false, "mentions": [] },
+    { "why": "行内代码里的 @ 不算", "text": "`@销售` 记得", "popover": false, "mentions": [] },
+    { "why": "超长名字（超过旧的 20 字上限）也要弹", "text": "@超长名字成员一二三四五六七八九十甲乙丙丁戊己庚辛", "popover": true, "mentions": ["kernel-long"] },
+    { "why": "超长名字输了一半不误点", "text": "@超长名字成员一二三四五六七八九十甲乙", "popover": true, "mentions": [] }
+  ]
+}

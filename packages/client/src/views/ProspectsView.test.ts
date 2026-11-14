@@ -81,7 +81,7 @@ describe('线索列表', () => {
     expect(list.mock.calls.at(-1)![0]).toMatchObject({ hasCustomsEvidence: true, offset: 0 })
   })
 
-  it('空列表给出“让 Agent 找客户”引导', async () => {
+  it('空列表给出“让 LULUX 找客户”引导', async () => {
     const { wrapper } = await mountView([])
     expect(wrapper.find('[data-testid="prospects-empty"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="prospects-ask"]').length).toBeGreaterThan(0)

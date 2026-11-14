@@ -48,7 +48,14 @@ LULUX ETA（LULUX External Trade Agent，外贸 Agent）
 - **自带模型**：接入你自己的 OpenAI 兼容 / Anthropic 接口（DeepSeek、通义、Moonshot、本地 Ollama 等）。
 - **多种 Agent 内核**：内置 LULUX 内核，另可在设置里安装 Hermes、Claude Code、Codex、Pi、Grok、Gemini CLI、Qwen Code 等命令行 Agent（由你的电脑从 npm 公共源下载，不随本软件分发）。
 
-## 功能（v0.1.2）
+## 功能（v0.1.4）
+
+### ✨ v0.1.4 新增
+
+- **WhatsApp 渠道**：侧栏新增 WhatsApp 入口，以「关联设备」方式接入一个个人号；三栏会话（搜索、筛选、标签、置顶 / 归档、快捷回复、客户档案与手动关联客户），输入翻译与收件译文。详见下方 [WhatsApp](#-whatsapp非官方引擎需确认风险) 一节。
+- **LULUX 起草 WhatsApp 回复**：Agent 可查会话、读消息、起草回复（只存草稿，你点“使用并编辑”后再发），发送消息每次都需你审批。
+- **客户列表高密度**：紧凑行、主联系人 / 当地时间 / 标签列、可选列、服务端排序、每页 20 / 50 / 100、跨页批量改阶段 / 加去标签 / 分配 / 删除。
+- **邮箱界面更新与修复**：选中项主题色、未读点、阅读区上一封 / 下一封；修复邮件图片不显示（内联图、远程图片按封同意后经服务端加载）。更多修复见 [CHANGELOG](CHANGELOG.md)。
 
 ### ✨ v0.1.2 新增
 
@@ -130,6 +137,24 @@ LULUX ETA（LULUX External Trade Agent，外贸 Agent）
 - IMAP 收信 / SMTP 发信，预设 Gmail、Outlook.com、Microsoft 365、QQ 邮箱、腾讯企业邮、网易 163、网易 126、阿里企业邮箱、Zoho Mail，另可自定义；Gmail / Microsoft 支持 OAuth 授权。
 - 来信自动关联客户；**询盘判定规则**按主题 / 正文 / 发件人 / 域名组合条件（包含 / 不包含 / 正则）标记询盘、垃圾或待复核，并可用样例邮件测试规则。
 - **AI 起草回信**：原邮件作为不可信的外部内容交给模型，其中的指令不会被执行；生成的只是草稿，**发送前一定由你点击确认**。
+
+### 📱 WhatsApp（非官方引擎，需确认风险）
+
+- **一台服务一个号**：以 WhatsApp「关联设备」方式接入一个个人号，手机扫码或手机号配对码二选一；二维码由服务端实时生成（20 秒有效），配对码 8 位、4 分钟有效。团队服务器上由第一个关联的成员占用，其他成员看不到号码与会话。
+- **关联前必须确认风险**：渠道页逐条列出封号、数据丢失与责任归属，两项都勾选后才会显示二维码或生成配对码；确认保留 30 天。
+- **会话**：三栏布局——会话列表（搜索名称 / 号码 / 公司，全部 / 未读 / 待回复 / 已归档，标签，置顶与归档）、消息区（失败可重试）、客户档案（按号码自动匹配或手动关联已有客户，也可直接新建客户）；个人快捷回复一键填入。
+- **翻译**：小框用母语输入，译文自动填入主输入框，发出的始终是主输入框里的内容；收到的消息可在气泡内显示译文，不改原文。翻译引擎运行时安装，见 [docs/WHATSAPP-TRANSLATOR.md](docs/WHATSAPP-TRANSLATOR.md)。
+- **LULUX 协助**：Agent 可查会话、读消息、起草回复——草稿显示在会话里，由你“使用并编辑”或“丢弃”；发送消息每次都需你审批。
+- **出口代理**：可为关联账号设置一个 SOCKS5 / HTTP / HTTPS 代理（绑定人或老板 / 管理员可设），“测试连接”显示出口 IP；线路由你自行准备。
+- **引擎不随应用分发**：协议引擎 Baileys 与二维码库 qrcode 不在任何 `package.json` 依赖里，由使用者安装到 `.eta-engines/whatsapp/`（已加入 `.gitignore`）；缺失时界面明确显示 `ENGINE_NOT_INSTALLED`。安装方式、离线包与 GPL-3.0 许可提示见 [docs/WHATSAPP-ENGINE.md](docs/WHATSAPP-ENGINE.md)。
+- 本版仅支持文本消息；媒体、群聊与模板消息不在范围内。
+
+#### ⚠️ 风险声明（始终显示）
+
+> LULUX ETA 的 WhatsApp 功能通过 WhatsApp 的「关联设备」(Linked Devices) 机制工作，依赖社区维护的第三方库（Baileys，由使用者在本机自行安装）。该用法未经 WhatsApp 或 Meta 授权，违反 WhatsApp 服务条款（Terms of Service）。使用本功能可能导致你的 WhatsApp 账号被限制、暂停或永久封禁。封禁由 WhatsApp 单方判定，无法申诉，账号内的聊天记录与客户关系可能一并丢失。本功能默认关闭，是否启用、用哪个号码、在什么业务场景使用，由部署方与使用者自行决定。风险与责任完全由部署方/使用者承担。项目作者与贡献者不对账号封禁、客户流失、数据丢失、业务中断或任何由此产生的直接与间接损失承担责任。本项目不提供任何规避手段，也不提供申诉支持：不内置、不代购、不推荐任何代理、VPN、中转服务、改机工具或"防封"方案；不协助申诉、不提供解封渠道、不对封禁结果作任何承诺。如你无法接受上述风险，请不要启用该功能；可改用 WhatsApp 官方 Cloud API（本版未内置该接入，需自行满足号码迁移、企业验证与网络可达性要求）。
+
+> "Linking your device through unofficial apps or websites may put your account at risk… Linking your account to an unofficial app or website, now or in the past, may result in a temporary or permanent account ban."
+> — WhatsApp 帮助中心《关于关联设备》
 
 ### 🏢 团队服务器（自建）
 

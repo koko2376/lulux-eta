@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { AppError, notFound } from '../errors.js'
 import { BUILTIN_AGENT_ID } from '../agents.js'
 import { agentService } from '../services/agent-service.js'
-import { activeRun, latestRun, runState } from '../services/chat/run-registry.js'
+import { latestRun, runState } from '../services/chat/run-registry.js'
 import { SUPERVISOR_NONE } from '../services/chat/supervisor.js'
 import { validateMemberModels } from '../services/chat/group-members.js'
 import { deleteSessionFully } from '../services/chat/session-delete.js'
@@ -21,7 +21,6 @@ import { browserControl } from '../services/browser/control.js'
 import { computerControl } from '../services/computer/control.js'
 import { computerChannel } from '../services/computer/channel.js'
 import { settingsService } from '../services/settings-service.js'
-import { clearSessionAllow } from '../services/tool-approval.js'
 
 const agentIds = z.array(z.string().max(80)).max(20)
 /** 群成员（同一内核可多次出现；role = 名字旁的群头衔） */

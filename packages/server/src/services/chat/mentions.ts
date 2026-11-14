@@ -1,5 +1,22 @@
 import type { ResolvedAgent } from '../agent-service.js'
 
+/** `@` 前面允许的 ASCII 标点（`/` `.` `-` `_` `@` 出现在邮箱 / URL / id 里，不算开始点名） */
+const ASCII_BEFORE = new Set([',', ';', ':', "'", '"', '?', '!', '(', ')', '[', ']', '{', '}', '<', '>'])
+/** 中文 / 日文 / 全角标点：`，@` `（@` 都可以 */
+const CJK_BEFORE = /[\u3000\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]/
+
+/**
+ * `@` 在 at 这个位置是否算“开始点名”。与客户端 `lib/mention.ts` 的 mentionBoundaryAllowed
+ * 同一套规则（两端跑同一份 test-fixtures/mentions.json 用例表，）：
+ * 开头、空白、中日韩文字 / 全角标点、常见中英文标点之后才算；邮箱 `a@b`、URL `.../@name` 不算。
+ */
+export function mentionBoundaryAllowed(source: string, at: number): boolean {
+  if (at <= 0) return true
+  const prev = source[at - 1] as string
+  if (/\s/.test(prev) || CJK_BEFORE.test(prev)) return true
+  return ASCII_BEFORE.has(prev)
+}
+
 /**
  * 找出文本里 @ 到的成员（按出现位置排序、去重）。认 `@名字` 与 `@agentId`，名字后可紧跟中文。
  * 代码块里的 @ 不算。
@@ -25,6 +42,8 @@ export function parseMentions(
           const at = source.indexOf(`${marker}${key}`, from)
           if (at < 0) break
           from = at + 1
+          // `@` 前面是字母 / 数字 / `/` 等（邮箱、URL、id 内部）：不算点名
+          if (!mentionBoundaryAllowed(source, at)) continue
           const after = source[at + 1 + key.length]
           const rest = source.slice(at + 1 + key.length)
           // id 形式要求后面不是单词字符，避免 @lux-trade2 误匹配；实例 id 后面也不能再跟 #

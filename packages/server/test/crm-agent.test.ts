@@ -64,7 +64,7 @@ beforeAll(async () => {
     body: { name: 'Mock', kind: 'openai', baseUrl: `${mockBase}/v1`, apiKey: 'sk-mock-key-123456', model: 'mock-model' },
   })
   // toolLoading=all：本文件断言注册表暴露的完整工具列表；按需加载见 toolsets.test.ts
-  await settings({ autoTitle: false, llmMaxRetries: 0, toolApproval: 'auto', skillAutoPreload: false, toolLoading: 'all' })
+  await settings({ autoTitle: false, llmMaxRetries: 0, toolApproval: 'auto', skillAutoPreload: false, toolLoading: 'all', modelCapabilities: JSON.stringify({ 'mock-model': { contextWindow: 200_000, maxOutput: 8192 } }) })
   // 一个已同步的邮箱账户 + 一封询盘（直接写库，避免依赖 IMAP）
   const { db } = await import('../src/db.js')
   const now = Date.now()
@@ -241,10 +241,10 @@ describe('内置 Agent 通过工具操作 CRM', () => {
     expect(parsed(r2[1]).task).toMatchObject({ source: 'agent', customerId: fromMail.customer.id, dueAt: '2026-10-23T02:00:00.000Z' })
     expect(parsed(r2[2]).customers.total).toBeGreaterThan(0)
     expect(parsed(r2[3]).items).toHaveLength(1)
-    // Agent 没有发送能力
+    // Agent 没有发邮件的能力；唯一带 send 的是 WhatsApp 发消息，且每次都要人工批准
     const tools = (await mockRequests())[0].tools.map((t: any) => t.function.name)
     expect(tools).toEqual(expect.arrayContaining(['update_customer', 'add_activity', 'list_activities', 'update_quote', 'create_task', 'pipeline_stats', 'generate_quote_pdf', 'create_customer_from_email']))
-    expect(tools.some((name: string) => /send/.test(name))).toBe(false)
+    expect(tools.filter((name: string) => /send/.test(name))).toEqual(['whatsapp_send_message'])
     const drafts = await server.request('GET', '/api/email/drafts')
     const saved = (drafts.json.items ?? drafts.json).find((d: any) => d.id === draft.draft.id)
     expect(saved.status ?? 'draft').not.toBe('sent')

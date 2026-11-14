@@ -9,6 +9,7 @@ import { oauthService } from '../services/email/oauth.js'
 import { EMAIL_PRESETS } from '../services/email/presets.js'
 import { renderQuotePdf } from '../services/email/quote-pdf.js'
 import { quoteService } from '../services/quote-service.js'
+import { remoteImageProxy } from '../services/email/remote-image-proxy.js'
 import { quoteTemplateService } from '../services/quote-template-service.js'
 import { parse } from '../validation.js'
 
@@ -88,12 +89,29 @@ export function emailRoutes(router: Router): void {
   router.get('/api/email/messages/:id', (ctx) => {
     ctx.body = messageService.get(ctx.params.id)
   })
-  router.get('/api/email/messages/:id/html', (ctx) => {
-    const html = messageService.html(ctx.params.id)
+  router.get('/api/email/messages/:id/html', async (ctx) => {
+    const html = await messageService.html(ctx.params.id, { remote: ctx.query.remote === '1' })
     ctx.type = 'text/html; charset=utf-8'
+    // 远程图仍然只以 data: 出现，CSP 不因“显示远程图片”放宽
     ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:")
     ctx.set('X-Content-Type-Options', 'nosniff')
+    ctx.set('Referrer-Policy', 'no-referrer')
+    ctx.set('Cache-Control', 'no-store')
     ctx.body = html
+  })
+  router.put('/api/email/messages/:id/remote-images', (ctx) => {
+    ctx.body = messageService.setRemoteImages(ctx.params.id, ctx.request.body)
+  })
+  /** 受控远程图片代理：只返回校验过的 PNG / JPEG / GIF / WebP 字节（HTML 渲染内部也走同一服务） */
+  router.get('/api/email/image-proxy', async (ctx) => {
+    const { url } = parse(z.object({ url: z.string().min(1).max(4096) }).strict(), ctx.query)
+    const image = await remoteImageProxy.fetch(url)
+    ctx.type = image.contentType
+    ctx.set('X-Content-Type-Options', 'nosniff')
+    ctx.set('Referrer-Policy', 'no-referrer')
+    ctx.set('Cache-Control', 'private, max-age=300')
+    ctx.length = image.buffer.length
+    ctx.body = image.buffer
   })
   router.patch('/api/email/messages/:id', async (ctx) => {
     ctx.body = await messageService.patch(ctx.params.id, ctx.request.body)

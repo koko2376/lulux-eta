@@ -5,6 +5,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DRAFTS_BASE_KEY, packDrafts } from '../lib/composer-draft'
+import { scopedKey, storageScopeHash } from '../lib/storage-scope'
 
 const uploads: Array<{ sessionId: string; path: string }> = []
 const gate: { list: Promise<void> | null } = { list: null }
@@ -85,6 +87,8 @@ const images = (w: Awaited<ReturnType<typeof setup>>['w']) => w.findAll('[data-t
 beforeEach(() => {
   uploads.length = 0
   gate.list = null
+  // 草稿现在会落盘：每个用例从干净的本机存储开始，避免上一个用例的草稿串进来
+  localStorage.clear()
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:p'), revokeObjectURL: vi.fn() }))
 })
 
@@ -149,6 +153,79 @@ describe('草稿按会话保存', () => {
     await flushPromises()
     expect(images(w)).toHaveLength(1)
     expect(images(w)[0].classes()).toContain('done')
+  })
+})
+
+describe('刷新 / 重开窗口后草稿还在', () => {
+  /** 模拟刷新：把落盘数据写进本机存储，然后新建 pinia + store（state() 从存储读回草稿） */
+  async function seedStoredDraft(sessionId: string, draft: Parameters<typeof packDrafts>[0][number]['draft']) {
+    localStorage.setItem(scopedKey(DRAFTS_BASE_KEY, storageScopeHash.value), packDrafts([{ key: sessionId, draft, at: 1 }]).raw)
+  }
+
+  it('文字 + 引用恢复；data: 预览不会从存储里回来（不显示假缩略图）', async () => {
+    await seedStoredDraft('s1', {
+      text: '刷新前写的报价说明',
+      refs: [{ kind: 'customer', id: 'c1', label: '客户甲', summary: '客户资料' }],
+      attachments: [
+        { path: 'uploads/a.png', name: 'a.png', size: 68, status: 'done', image: true, mime: 'image/png' },
+      ],
+    })
+    const { w } = await setup()
+    expect(value(w)).toBe('刷新前写的报价说明')
+    // 引用 chip 回来了
+    expect(w.text()).toContain('客户甲')
+    // 附件元数据在，但没有预览 → 显示文件 chip，不是坏掉的 <img>
+    const chip = w.find('.composer-file')
+    expect(chip.exists()).toBe(true)
+    expect(chip.text()).toContain('a.png')
+    expect(chip.find('img').exists()).toBe(false)
+  })
+
+  it('上传到一半就关窗的附件：显示失败的可移除 chip，不阻塞发送', async () => {
+    await seedStoredDraft('s1', {
+      text: '文字还在',
+      refs: [],
+      attachments: [{ path: 'uploads/half.pdf', name: 'half.pdf', size: 12, status: 'uploading' }],
+    })
+    const { w, send } = await setup()
+    expect(value(w)).toBe('文字还在')
+    const chip = w.find('.composer-file')
+    expect(chip.exists()).toBe(true)
+    expect(chip.classes()).toContain('error')
+    expect(chip.text()).toContain('half.pdf')
+
+    // 移除那个 chip 后照常发送
+    await chip.find('.composer-file-remove').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.composer-file')).toHaveLength(0)
+    await w.find('textarea').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send!.mock.calls[0]![0]).toBe('文字还在')
+  })
+
+  it('发送成功后存储里的那份也清掉（重新打开不会再冒出来）', async () => {
+    await seedStoredDraft('s1', { text: '这条要发出去', refs: [], attachments: [] })
+    const { w, send } = await setup()
+    expect(value(w)).toBe('这条要发出去')
+    await w.find('textarea').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(send).toHaveBeenCalledTimes(1)
+    const raw = localStorage.getItem(scopedKey(DRAFTS_BASE_KEY, storageScopeHash.value))!
+    expect(JSON.parse(raw).drafts.s1).toBeUndefined()
+  })
+})
+
+describe('关窗前最后几个字也落盘', () => {
+  it('防抖未到点时 pagehide 立即写入本机存储', async () => {
+    const { w } = await setup()
+    vi.useFakeTimers()
+    await w.find('textarea').setValue('刚敲完就关窗')
+    const key = scopedKey(DRAFTS_BASE_KEY, storageScopeHash.value)
+    const before = localStorage.getItem(key)
+    expect(before === null || !before.includes('刚敲完就关窗')).toBe(true)
+    window.dispatchEvent(new Event('pagehide'))
+    expect(localStorage.getItem(key)).toContain('刚敲完就关窗')
   })
 })
 

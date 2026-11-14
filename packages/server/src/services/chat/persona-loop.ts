@@ -66,7 +66,6 @@ import {
   DEFAULT_MAX_TURNS,
   LOOP_GUARD_PROMPT,
   MAX_TURNS_LIMIT,
-  REPEAT_LIMIT,
   RepeatGuard,
   repeatLimitFor,
   STATEFUL_TOOLS,

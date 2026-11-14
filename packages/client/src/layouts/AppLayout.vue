@@ -14,6 +14,7 @@ import { onServerEvent, startEvents, stopEvents } from '../stores/events'
 import { startGroupLive } from '../stores/group-live'
 import { toast } from '../stores/ui'
 import { t } from '../i18n'
+import { startWhatsAppStatus, stopWhatsAppStatus } from '../lib/whatsapp'
 
 const router = useRouter()
 const store = useAppStore()
@@ -80,6 +81,8 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   startEvents()
+  // WhatsApp 渠道页与侧栏状态点共用服务端实时快照
+  startWhatsAppStatus()
   // server 模式：会话被登出 / 重置密码 / 停用 → 回登录页
   off = onServerEvent('session.revoked', async () => {
     await clearSession()
@@ -110,6 +113,7 @@ onBeforeUnmount(() => {
   offRun?.()
   offSchedules?.()
   offGroups?.()
+  stopWhatsAppStatus()
   stopEvents()
 })
 </script>

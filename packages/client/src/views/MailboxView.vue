@@ -14,6 +14,7 @@ import StateBlock from '../components/ui/StateBlock.vue'
 import UiModal from '../components/ui/UiModal.vue'
 import { downloadBlob, formatBytes } from '../lib/download'
 import { relativeTime } from '../lib/labels'
+import { notifyMailCountsChanged } from '../lib/mail-counts'
 import {
   VERDICT_LABEL,
   VERDICT_SOURCE_LABEL,
@@ -147,6 +148,8 @@ async function loadList(reset = true): Promise<void> {
 /* 左栏计数：收件箱 / 各判定 / 未读 / 草稿（每项只取 total） */
 const counts = reactive({ inbox: 0, inquiry: 0, review: 0, spam: 0, unread: 0, drafts: 0 })
 async function loadCounts(): Promise<void> {
+  // 计数有变化的地方都会走这里：顺带通知全局侧栏刷新邮箱未读角标
+  notifyMailCountsChanged()
   if (!accounts.value.length) return
   if (restrictedSelected.value) {
     Object.assign(counts, { inbox: 0, inquiry: 0, review: 0, spam: 0, unread: 0, drafts: 0 })
@@ -196,13 +199,22 @@ watch([folder, verdict, unreadOnly, accountId, sortByScore], () => {
 
 /* ── 阅读 ── */
 const selectedId = ref<string | null>(null)
+/** 阅读区上一封 / 下一封（按当前列表顺序） */
+const messageIndex = computed(() => messages.value.findIndex((m) => m.id === selectedId.value))
+function openSibling(step: number): void {
+  const next = messages.value[messageIndex.value + step]
+  if (next) void open(next.id)
+}
 /** ?message= 指定的那封：不在当前页列表里也不被“自动打开第一封”顶掉 */
 let pinnedId: string | null = null
 const message = ref<api.EmailMessage | null>(null)
 const messageLoading = ref(false)
 const messageError = ref('')
 const html = ref<string | null>(null)
+/** 有 HTML 正文时默认图文视图；纯文本邮件保持纯文本 */
 const showHtml = ref(false)
+const htmlLoading = ref(false)
+const remoteBusy = ref(false)
 
 async function open(id: string, opts: { auto?: boolean } = {}): Promise<void> {
   selectedId.value = id
@@ -211,13 +223,18 @@ async function open(id: string, opts: { auto?: boolean } = {}): Promise<void> {
   messageLoading.value = true
   messageError.value = ''
   html.value = null
+  htmlLoading.value = false
+  remoteBusy.value = false
   showHtml.value = false
   try {
     const m = await api.getEmailMessage(id)
     // 自动打开第一封和用户点选可能交错返回：只认最后一次选择
     if (selectedId.value !== id) return
     message.value = m
-    if (!m.text.trim() && m.hasHtml) void toggleHtml()
+    if (m.hasHtml) {
+      showHtml.value = true
+      void loadHtml()
+    }
     if (!m.seen && m.folder === 'inbox' && !opts.auto) {
       void api.patchEmailMessage(id, { seen: true }).catch(() => undefined)
       const row = messages.value.find((x) => x.id === id)
@@ -234,17 +251,54 @@ async function open(id: string, opts: { auto?: boolean } = {}): Promise<void> {
   }
 }
 
-async function toggleHtml(): Promise<void> {
-  if (!message.value) return
-  showHtml.value = !showHtml.value
-  if (showHtml.value && html.value === null) {
-    try {
-      html.value = await api.getEmailMessageHtml(message.value.id)
-    } catch {
-      html.value = ''
-      showHtml.value = false
-      toast.error(t('mailbox.kdq1tqo'))
+async function loadHtml(allowRemote = true): Promise<void> {
+  const m = message.value
+  if (!m || !m.hasHtml) return
+  htmlLoading.value = true
+  try {
+    const body = await api.getEmailMessageHtml(m.id, {
+      remote: allowRemote && m.remoteImages.allowed,
+    })
+    if (message.value?.id !== m.id) return
+    html.value = body
+  } catch {
+    if (message.value?.id !== m.id) return
+    // 远程图取不到不该拖垮正文：退回已拦截版本，并按“远程图片加载失败”提示
+    if (allowRemote && m.remoteImages.allowed) {
+      toast.error(t('mailbox.kom4364'))
+      await loadHtml(false)
+      return
     }
+    html.value = null
+    showHtml.value = false
+    toast.error(t('mailbox.kdq1tqo'))
+  } finally {
+    if (message.value?.id === m.id) htmlLoading.value = false
+  }
+}
+
+function toggleHtml(): void {
+  if (!message.value?.hasHtml) return
+  showHtml.value = !showHtml.value
+  if (showHtml.value && html.value === null && !htmlLoading.value) void loadHtml()
+}
+
+/** 「显示远程图片」：持久化到当前用户后，经服务端代理取图并以 data URL 内联，CSP 不放宽 */
+async function toggleRemote(): Promise<void> {
+  const m = message.value
+  if (!m || remoteBusy.value) return
+  const allow = !m.remoteImages.allowed
+  remoteBusy.value = true
+  try {
+    await api.setEmailRemoteImages(m.id, allow)
+    m.remoteImages.allowed = allow
+    html.value = null
+    showHtml.value = true
+    await loadHtml()
+  } catch {
+    toast.error(t('mailbox.kom4364'))
+  } finally {
+    remoteBusy.value = false
   }
 }
 
@@ -280,6 +334,8 @@ async function reclassify(): Promise<void> {
   } finally {
     classifying.value = false
   }
+  // 复核可能改了判定 / 文件夹：左栏各项计数与全局侧栏的未读角标一起刷新
+  void loadCounts()
 }
 
 /* 客户 */
@@ -695,6 +751,7 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
               :aria-selected="folder === 'sent'"
               @click="folder = 'sent'"
             >
+<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.6 3.6 10.4l6.7 2.9 2.9 6.7Z" /><path d="m10.3 13.3 4.4-4.4" /></svg>
               {{ $t('mailbox.folderSent') }}
             </button>
             <button
@@ -705,6 +762,7 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
               :aria-selected="folder === 'drafts'"
               @click="folder = 'drafts'"
             >
+<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8Z" /><path d="M14 3.5V8h4.5" /></svg>
               {{ $t('mailbox.folderDrafts') }}<span v-if="counts.drafts" class="count">{{ counts.drafts }}</span>
             </button>
           </div>
@@ -1006,6 +1064,29 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
           :message="$t('mailbox.k180ne0v')"
         />
         <template v-else>
+          <div v-if="messageIndex >= 0" class="read-bar" data-testid="mail-pager">
+            <button
+              type="button"
+              class="icon-btn"
+              :disabled="messageIndex <= 0"
+              :aria-label="$t('mailx.prev')"
+              :title="$t('mailx.prev')"
+              @click="openSibling(-1)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              :disabled="messageIndex >= messages.length - 1"
+              :aria-label="$t('mailx.next')"
+              :title="$t('mailx.next')"
+              @click="openSibling(1)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
+            </button>
+            <span class="read-pos">{{ messageIndex + 1 }} / {{ total }}</span>
+          </div>
           <div class="read-scroll">
             <article class="read-inner" data-testid="mail-reader">
               <header class="mail-head">
@@ -1071,7 +1152,7 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
                       {{ VERDICT_LABEL[v] }}
                     </button>
                   </div>
-                  <button type="button" class="ghost-btn" :disabled="classifying" @click="reclassify">
+                  <button type="button" class="ghost-btn" data-testid="mail-reclassify" :disabled="classifying" @click="reclassify">
                     {{ classifying ? $t('mailbox.kkdc1sa') : $t('mailbox.k17s51b0') }}
                   </button>
                   <button
@@ -1128,9 +1209,34 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
                   :srcdoc="html"
                   :title="$t('mailbox.k1srh177')"
                 ></iframe>
+                <p v-else-if="showHtml && htmlLoading" class="muted small">{{ $t('mailbox.k1otaw4b') }}</p>
                 <pre v-else class="mail-text">{{ message.text || $t('mailbox.k1b0znjf') }}</pre>
-                <p v-if="showHtml" class="muted small">{{ $t('mailbox.kvidgh6') }}</p>
-                <p v-if="message.truncated" class="muted small">{{ $t('mailbox.k1i274xw') }}</p>
+                <div v-if="showHtml" class="remote-line">
+                  <span class="muted small">
+                    {{
+                      !message.remoteImages.hasRemote
+                        ? $t('mailbox.kvidgh6')
+                        : message.remoteImages.allowed
+                          ? $t('mailbox.k1qsyusr')
+                          : $t('mailbox.kgv466h')
+                    }}
+                  </span>
+                  <button
+                    v-if="message.remoteImages.hasRemote"
+                    type="button"
+                    class="ghost-btn"
+                    data-testid="remote-images-toggle"
+                    :disabled="remoteBusy || htmlLoading"
+                    @click="toggleRemote"
+                  >
+                    {{
+                      message.remoteImages.allowed
+                        ? $t('mailbox.k1sl0pfd')
+                        : $t('mailbox.k1hzw7cr')
+                    }}
+                  </button>
+                </div>
+                <p v-if="message.truncated" class="muted small">{{ $t('mailbox.k1lkj3pb') }}</p>
               </div>
 
               <!-- 附件 -->
@@ -1467,8 +1573,82 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
   background: var(--surface-hover);
 }
 .mrow.on {
-  background: var(--surface-soft);
-  border-left-color: var(--text);
+  background: var(--accent);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: var(--radius-md);
+  margin: 6px 8px;
+  width: calc(100% - 16px);
+  padding-left: 12px;
+  padding-right: 12px;
+  color: var(--on-accent);
+}
+.mrow.on .who,
+.mrow.on .subj,
+.mrow.on .when,
+.mrow.on .snip {
+  color: var(--on-accent);
+}
+.mrow.on .snip,
+.mrow.on .when {
+  opacity: 0.82;
+}
+.mrow.on .udot {
+  background: var(--on-accent);
+}
+.mrow.on .vtag,
+.mrow.on .ctag,
+.mrow.on .gtag {
+  background: color-mix(in srgb, var(--on-accent) 20%, transparent);
+  color: var(--on-accent);
+}
+.mail-side .nav-row.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.mail-side .nav-row.on .count {
+  color: var(--on-accent);
+  opacity: 0.85;
+}
+.read-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.read-bar .icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-secondary);
+}
+.read-bar .icon-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.read-bar .icon-btn:disabled {
+  opacity: 0.35;
+}
+.read-bar svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.read-pos {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 .mrow-top {
   display: flex;
@@ -1481,7 +1661,7 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
   height: 6px;
   flex: none;
   border-radius: 50%;
-  background: var(--text);
+  background: var(--accent);
 }
 .who {
   flex: 1;
@@ -1772,6 +1952,12 @@ async function confirmDeleteDraft(d: api.EmailDraft): Promise<void> {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
+}
+.remote-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .att-list {
   list-style: none;

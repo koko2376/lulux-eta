@@ -35,3 +35,26 @@ describe('Agent 期间的导航黑名单（P1 审查 #4）', () => {
     expect(controller.navigationGuard).toBeNull()
   })
 })
+
+describe('运行结束立即释放租约', () => {
+  it('持有者 release 后另一个会话立刻可用；非持有者 release 无效；释放时推送 release 活动并解除拦截', async () => {
+    const { BrowserAgent } = await import('../src/browser-agent')
+    const activities: Array<{ action: string; sessionId?: string }> = []
+    const controller: any = { navigationGuard: null, ensureTab: () => null, activeContents: () => null, state: () => null }
+    const agent = new BrowserAgent(() => controller, (a: any) => activities.push(a))
+    await agent.execute({ action: 'snapshot', sessionId: 'a', deniedDomains: ['bank.example.com'] }).catch(() => undefined)
+    expect(controller.navigationGuard).not.toBeNull()
+    await expect(agent.execute({ action: 'snapshot', sessionId: 'b' })).rejects.toMatchObject({ code: 'BUSY' })
+    // 别的会话不能替持有者释放
+    expect(await agent.execute({ action: 'release', sessionId: 'b' })).toEqual({ released: false })
+    await expect(agent.execute({ action: 'snapshot', sessionId: 'b' })).rejects.toMatchObject({ code: 'BUSY' })
+    expect(await agent.execute({ action: 'release', sessionId: 'a' })).toEqual({ released: true })
+    expect(controller.navigationGuard).toBeNull()
+    expect(activities.at(-1)).toMatchObject({ action: 'release', sessionId: 'a' })
+    // 不等 90 秒：B 立刻能接手（这里没有标签页，所以走到 NO_TAB/NO_WINDOW 一类错误而不是 BUSY）
+    const err = await agent.execute({ action: 'snapshot', sessionId: 'b' }).catch((e) => e)
+    expect(err?.code).not.toBe('BUSY')
+    // 重复释放幂等
+    expect(await agent.execute({ action: 'release', sessionId: 'a' })).toEqual({ released: false })
+  })
+})

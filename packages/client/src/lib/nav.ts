@@ -1,9 +1,9 @@
 /**
- * 主导航（侧栏底部 6 个入口）与页面分组标签。
+ * 主导航（侧栏底部 7 个入口）与页面分组标签。
  * 入口按 route.meta.section 判断是否选中；客户 / 邮箱 / 工作流三个入口下面各有一组顶部标签，
  * 标签按路径前缀判断选中。路径本身没有变化，旧书签 / Agent 给的链接照常能打开。
  */
-export type NavIcon = 'agent' | 'workbench' | 'customers' | 'mailbox' | 'workflows' | 'skills'
+export type NavIcon = 'agent' | 'workbench' | 'customers' | 'mailbox' | 'whatsapp' | 'workflows' | 'skills'
 
 export interface NavEntry {
   id: NavIcon
@@ -26,6 +26,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     testid: 'rail-customers',
   },
   { id: 'mailbox', to: '/mailbox', label: 'appRail.k182knuk', sections: ['mailbox'], testid: 'rail-mailbox' },
+  { id: 'whatsapp', to: '/whatsapp', label: 'appRail.whatsapp', sections: ['whatsapp'], testid: 'rail-whatsapp' },
   {
     id: 'workflows',
     to: '/workflows',
@@ -45,6 +46,8 @@ export interface SectionTab {
   label: string
   /** 这些路径前缀都算这个标签 */
   prefixes: string[]
+  /** 只匹配完全相同的路径（WhatsApp 的「会话」是 /whatsapp 本身，不能把「渠道」也吸过来） */
+  exact?: boolean
   testid: string
 }
 
@@ -66,11 +69,18 @@ export const SECTION_TABS: Record<string, SectionTab[]> = {
   ],
 }
 
+/** WhatsApp 页左栏的会话 / 渠道切换 */
+export const WHATSAPP_TABS: SectionTab[] = [
+  { to: '/whatsapp', label: 'appRail.whatsappChats', prefixes: ['/whatsapp'], exact: true, testid: 'wa-sub-chats' },
+  { to: '/whatsapp/channels', label: 'appRail.whatsappChannels', prefixes: ['/whatsapp/channels'], testid: 'wa-sub-channels' },
+]
+
 export function tabsFor(section: string): SectionTab[] {
   const entry = navEntryFor(section)
   return entry ? (SECTION_TABS[entry.id] ?? []) : []
 }
 
 export function tabActive(tab: SectionTab, path: string): boolean {
+  if (tab.exact) return tab.prefixes.includes(path)
   return tab.prefixes.some((prefix) => path === prefix || path.startsWith(prefix + '/'))
 }

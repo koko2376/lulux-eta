@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ImapFlow } from 'imapflow'
 import { simpleParser, type AddressObject, type ParsedMail } from 'mailparser'
@@ -28,7 +28,9 @@ import {
   type AccountRow,
 } from './account-service.js'
 import { FREE_MAIL_DOMAINS } from './presets.js'
-import { htmlToText, sanitizeEmailHtml, wrapEmailHtml } from './sanitize.js'
+import { imageDataUrl } from './image-type.js'
+import { remoteImageProxy } from './remote-image-proxy.js'
+import { cidReferences, htmlToText, normalizeCid, remoteImageUrls, sanitizeEmailHtml, wrapEmailHtml } from './sanitize.js'
 import { scoreInquiry, type InquiryGrade, type InquiryScore } from './inquiry-score.js'
 import { sanctionsService } from '../sanctions/sanctions-service.js'
 import { handleInboundForSequences } from './sequence-service.js'
@@ -88,6 +90,8 @@ export interface EmailMessage extends EmailMessageSummary {
   hasHtml: boolean
   truncated: boolean
   attachments: EmailAttachment[]
+  /** 远程图片状态：是否有远程图；当前用户是否已选择显示（选择按用户持久化） */
+  remoteImages: { hasRemote: boolean; allowed: boolean }
 }
 
 export interface MessageRow {
@@ -139,9 +143,17 @@ interface AttachmentRow {
   position: number
 }
 
-const BODY_LIMIT = 2 * 1024 * 1024
+/** 纯文本正文上限（HTML 正文上限改为读设置 emailHtmlMaxBytes，默认同样是 2 MB） */
+const TEXT_LIMIT = 2 * 1024 * 1024
 const SOURCE_LIMIT = 30 * 1024 * 1024
 const FETCH_BATCH = 50
+/** CID 内联图：单张 4 MB、每封总计 8 MB、最多 20 张 */
+const INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024
+const INLINE_IMAGES_TOTAL_BYTES = 8 * 1024 * 1024
+const INLINE_IMAGES_MAX_COUNT = 20
+/** 远程图片：每封最多 12 张、总计 8 MB（仅用户显式开启后） */
+const REMOTE_IMAGES_MAX_COUNT = 12
+const REMOTE_IMAGES_TOTAL_BYTES = 8 * 1024 * 1024
 
 function json<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback
@@ -205,8 +217,24 @@ function toMessage(row: MessageRow): EmailMessage {
     hasHtml: Boolean(row.html_body),
     truncated: row.truncated === 1,
     attachments: attachmentsOf(row.id),
+    remoteImages: {
+      hasRemote: Boolean(row.html_body && remoteImageUrls(row.html_body).length > 0),
+      allowed: remoteImagesAllowed(row.id),
+    },
     inquiry: row.inquiry_detail ? json<InquiryScore | null>(row.inquiry_detail, null) : null,
   }
+}
+
+function remoteImagesAllowed(messageId: string): boolean {
+  const row = db
+    .prepare('SELECT 1 AS ok FROM email_remote_image_consents WHERE user_id = ? AND message_id = ?')
+    .get(currentActor().id, messageId) as { ok: number } | undefined
+  return Boolean(row)
+}
+
+function htmlBodyLimit(): number {
+  const value = Number(settingsService.get('emailHtmlMaxBytes') ?? '')
+  return Number.isFinite(value) && value >= 262_144 ? value : 2 * 1024 * 1024
 }
 
 const SELECT_WITH_CUSTOMER = `SELECT m.*, c.company AS customer_name FROM email_messages m LEFT JOIN customers c ON c.id = m.customer_id AND c.deleted_at IS NULL`
@@ -266,11 +294,11 @@ export async function parseRaw(source: Buffer, fallbackDate = Date.now()): Promi
   let html = parsed.html || null
   if (!text && html) text = htmlToText(html)
   let truncated = false
-  if (text.length > BODY_LIMIT) {
-    text = text.slice(0, BODY_LIMIT)
+  if (text.length > TEXT_LIMIT) {
+    text = text.slice(0, TEXT_LIMIT)
     truncated = true
   }
-  if (html && html.length > BODY_LIMIT) {
+  if (html && Buffer.byteLength(html, 'utf8') > htmlBodyLimit()) {
     html = null
     truncated = true
   }
@@ -801,6 +829,134 @@ function companyFromAddress(mail: { from_name: string; from_address: string }): 
   return { company: core.charAt(0).toUpperCase() + core.slice(1), website: `https://${domain}` }
 }
 
+function attachmentRowsOf(messageId: string): AttachmentRow[] {
+  return db.prepare('SELECT * FROM email_attachments WHERE message_id = ? ORDER BY position').all(messageId) as unknown as AttachmentRow[]
+}
+
+function readCachedAttachment(att: AttachmentRow): Buffer | null {
+  if (!att.local_path || !existsSync(att.local_path)) return null
+  try {
+    return readFileSync(att.local_path)
+  } catch {
+    return null
+  }
+}
+
+function cacheAttachment(row: MessageRow, att: AttachmentRow, content: Buffer): void {
+  const dir = join(config.home, 'attachments', row.account_id)
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, att.id)
+  writeFileSync(file, content, { mode: 0o600 })
+  db.prepare('UPDATE email_attachments SET local_path = ?, size = ? WHERE id = ?').run(file, content.length, att.id)
+  att.local_path = file
+  att.size = content.length
+}
+
+/** 一次 IMAP 连接取回多张内联图的原始内容（与附件按需下载同一套 uidValidity 校验） */
+async function fetchAttachmentContents(row: MessageRow, atts: AttachmentRow[]): Promise<Map<string, Buffer>> {
+  const out = new Map<string, Buffer>()
+  if (!atts.length || row.uid === null) return out
+  const account = accountRow(row.account_id)
+  if (!account) return out
+  const client = await openImap(account)
+  let source: Buffer | undefined
+  try {
+    const lock = await client.getMailboxLock(row.folder_path, { readOnly: true })
+    try {
+      if (String(client.mailbox && client.mailbox.uidValidity) !== row.uid_validity) return out
+      const msg = await client.fetchOne(String(row.uid), { source: true }, { uid: true })
+      source = msg ? msg.source : undefined
+    } finally {
+      lock.release()
+    }
+  } finally {
+    await client.logout().catch(() => client.close())
+  }
+  if (!source) return out
+  const parsed = await simpleParser(source)
+  for (const att of atts) {
+    const content = parsed.attachments[att.position]?.content
+    if (content) out.set(att.id, content)
+  }
+  return out
+}
+
+/**
+ * 按邮件读取 inline 附件并转 data URL：
+ * CID 归一化匹配、MIME 与魔数一致、单张 4 MB / 总计 8 MB / 最多 20 张；
+ * IMAP 不可用时只缺少图片，不影响正文。
+ */
+async function inlineImagesFor(row: MessageRow, cids: Set<string>): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  if (cids.size === 0) return map
+  const matches = attachmentRowsOf(row.id).filter(
+    (att) => att.inline === 1 && att.content_id && cids.has(normalizeCid(att.content_id)),
+  )
+  if (matches.length === 0) return map
+
+  const contents = new Map<string, Buffer>()
+  const missing: AttachmentRow[] = []
+  for (const att of matches) {
+    const cached = readCachedAttachment(att)
+    if (cached) contents.set(att.id, cached)
+    else if (row.uid !== null) missing.push(att)
+  }
+  if (missing.length) {
+    try {
+      const fetched = await fetchAttachmentContents(row, missing)
+      for (const [id, content] of fetched) contents.set(id, content)
+    } catch (error) {
+      console.warn('[lulux-eta] 读取内联图片失败：', messageOf(error))
+    }
+  }
+
+  let total = 0
+  let count = 0
+  for (const att of matches) {
+    if (count >= INLINE_IMAGES_MAX_COUNT || total >= INLINE_IMAGES_TOTAL_BYTES) break
+    const content = contents.get(att.id)
+    if (!content) continue
+    const image = imageDataUrl(content, att.content_type ?? '', INLINE_IMAGE_MAX_BYTES)
+    if (!image) continue
+    if (total + content.length > INLINE_IMAGES_TOTAL_BYTES) continue
+    map.set(normalizeCid(att.content_id!), image.dataUrl)
+    total += content.length
+    count++
+    if (!att.local_path || !existsSync(att.local_path)) {
+      try {
+        cacheAttachment(row, att, content)
+      } catch (error) {
+        console.warn('[lulux-eta] 缓存内联图片失败：', messageOf(error))
+      }
+    }
+  }
+  return map
+}
+
+/** 远程图片（仅用户显式开启后调用）：失败的图片保持拦截，不影响正文 */
+async function remoteImagesFor(html: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const urls = remoteImageUrls(html).slice(0, REMOTE_IMAGES_MAX_COUNT)
+  if (urls.length === 0) return map
+  const results = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        return { url, image: await remoteImageProxy.fetch(url) }
+      } catch {
+        return null
+      }
+    }),
+  )
+  let total = 0
+  for (const item of results) {
+    if (!item) continue
+    if (total + item.image.buffer.length > REMOTE_IMAGES_TOTAL_BYTES) continue
+    map.set(item.url, item.image.dataUrl)
+    total += item.image.buffer.length
+  }
+  return map
+}
+
 export const messageService = {
   list(input: unknown): { items: EmailMessageSummary[]; total: number } {
     const query = parse(listQuery, input)
@@ -864,10 +1020,38 @@ export const messageService = {
     return toMessage(messageService.requireRow(id))
   },
 
-  html(id: string): string {
+  /**
+   * HTML 正文。CID 内联图自动转为 data URL；远程图片默认只留 data-blocked-src，
+   * 只有当前用户对该邮件显式开启「显示远程图片」后，才由服务端代理拉取并内联为 data URL。
+   */
+  async html(id: string, options: { remote?: boolean } = {}): Promise<string> {
     const row = messageService.requireRow(id)
     if (!row.html_body) throw new AppError(404, 'NO_HTML', '这封邮件没有 HTML 正文')
-    return wrapEmailHtml(sanitizeEmailHtml(row.html_body))
+    const inlineImages = await inlineImagesFor(row, cidReferences(row.html_body))
+    let remoteImages = new Map<string, string>()
+    if (options.remote) {
+      if (!remoteImagesAllowed(id)) {
+        throw new AppError(403, 'REMOTE_IMAGES_NOT_ALLOWED', '请先为这封邮件开启「显示远程图片」')
+      }
+      remoteImages = await remoteImagesFor(row.html_body)
+    }
+    return wrapEmailHtml(sanitizeEmailHtml(row.html_body, inlineImages, remoteImages))
+  },
+
+  /** 记录当前用户对某封邮件“显示远程图片”的选择（按用户持久化） */
+  setRemoteImages(id: string, input: unknown): { allowed: boolean } {
+    const { allow } = parse(z.object({ allow: z.boolean() }).strict(), input)
+    messageService.requireRow(id)
+    if (allow) {
+      db.prepare('INSERT OR IGNORE INTO email_remote_image_consents (user_id, message_id, created_at) VALUES (?, ?, ?)').run(
+        currentActor().id,
+        id,
+        Date.now(),
+      )
+    } else {
+      db.prepare('DELETE FROM email_remote_image_consents WHERE user_id = ? AND message_id = ?').run(currentActor().id, id)
+    }
+    return { allowed: allow }
   },
 
   async patch(id: string, input: unknown): Promise<EmailMessage> {

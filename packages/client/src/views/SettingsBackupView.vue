@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import PermNote from '../components/ui/PermNote.vue'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import * as api from '../api'
 import BackupSnapshots from '../components/BackupSnapshots.vue'
 import SettingsSidebar from '../components/SettingsSidebar.vue'
@@ -18,8 +18,25 @@ const loadError = ref('')
 const exporting = ref(false)
 const importing = ref(false)
 const clearing = ref(false)
-const lastImport = ref<Record<string, number> | null>(null)
+/** 上一次导入的完整结果：表计数 + 导入前快照 + 已应用 / 已跳过的设置键名 */
+const lastImport = ref<api.DataImportResult | null>(null)
+/** 已应用 / 已跳过的键名列表是否展开（长列表默认收起） */
+const showApplied = ref(false)
+const showSkipped = ref(false)
+/** 键名一次最多列这么多，再长就靠“展开全部” */
+const LIST_PREVIEW = 6
 const fileInput = ref<HTMLInputElement | null>(null)
+
+// 只列真正导入了数据的表；全部为 0 时由下方“没有导入任何数据”兜底
+const importedCounts = computed(() => Object.entries(lastImport.value?.imported ?? {}).filter(([, n]) => n > 0))
+const appliedSettings = computed(() => lastImport.value?.appliedSettings ?? [])
+const skippedSettings = computed(() => lastImport.value?.skippedSettings ?? [])
+/** 只有真的应用 / 跳过了设置才显示设置那两栏（空结果不渲染空面板） */
+const hasSettingsResult = computed(() => appliedSettings.value.length > 0 || skippedSettings.value.length > 0)
+
+function visible(list: string[], expanded: boolean): string[] {
+  return expanded ? list : list.slice(0, LIST_PREVIEW)
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -69,10 +86,15 @@ async function onFile(event: Event): Promise<void> {
   if (!ok) return
   importing.value = true
   try {
-    const { imported } = await api.importData(payload)
-    lastImport.value = imported
+    // 服务端返回全量结果：表计数、导入前快照、已应用 / 已跳过的设置键名
+    lastImport.value = await api.importData(payload)
+    showApplied.value = false
+    showSkipped.value = false
     toast.success(t('settingsBackup.kwoar18'))
     await Promise.all([load(), store.refreshSessions().catch(() => undefined)])
+  } catch (error) {
+    // 导入被拒（格式不对 / 没权限）：报出来，不动上一次的结果面板，也不留半截状态
+    toast.error(errorText(error))
   } finally {
     importing.value = false
   }
@@ -97,14 +119,26 @@ async function clearSessions(): Promise<void> {
   }
 }
 
-const TABLE_LABEL: Record<string, string> = {
-  customers: t('settingsBackup.k1v5iwp2'),
-  quotes: t('settingsBackup.k1py8dnr'),
-  sessions: t('settingsBackup.k10gw4cu'),
-  messages: t('settingsBackup.k1p5t14q'),
-  products: t('settingsBackup.ku6n7te'),
-  activities: t('settingsBackup.klhkzqt'),
+const TABLE_LABEL_KEY: Record<string, string> = {
+  settings: 'settingsBackup.tableSettings',
+  providers: 'settingsBackup.tableProviders',
+  sessions: 'settingsBackup.k10gw4cu',
+  messages: 'settingsBackup.k1p5t14q',
+  customers: 'settingsBackup.k1v5iwp2',
+  prospects: 'settingsBackup.tableProspects',
+  activities: 'settingsBackup.klhkzqt',
+  products: 'settingsBackup.ku6n7te',
+  quotes: 'settingsBackup.k1py8dnr',
+  inquiryRules: 'settingsBackup.tableInquiryRules',
+  quoteTemplates: 'settingsBackup.tableQuoteTemplates',
+  tasks: 'settingsBackup.tableTasks',
+  deals: 'settingsBackup.tableDeals',
+  orders: 'settingsBackup.tableOrders',
+  payments: 'settingsBackup.tablePayments',
+  memory: 'settingsBackup.tableMemory',
 }
+// 未知表名（新版服务端多出来的表）原样显示键名，不吞掉
+const tableLabel = (key: string): string => (TABLE_LABEL_KEY[key] ? t(TABLE_LABEL_KEY[key]) : key)
 </script>
 
 <template>
@@ -182,11 +216,53 @@ const TABLE_LABEL: Record<string, string> = {
                 @change="onFile"
               />
             </div>
-            <div v-if="lastImport" class="note" role="status">
-              {{ $t('settingsBackup.k1fxkgxk') }}
-              <span v-for="(n, key) in lastImport" :key="key">{{
-                $t('settingsBackup.ktapc78', [TABLE_LABEL[key] ?? key, n])
-              }}</span>
+            <!-- 导入结果：表计数 + 已应用 / 已跳过的设置键名；只显示键名，不显示任何设置值 -->
+            <div v-if="lastImport" class="import-result" role="status" data-testid="import-result">
+              <div class="import-result-head">
+                <b>{{ $t('settingsBackup.importResultHead') }}</b>
+                <span v-for="[key, n] in importedCounts" :key="key" class="import-count">
+                  {{ $t('settingsBackup.importCount', [tableLabel(key), n]) }}
+                </span>
+                <span v-if="!importedCounts.length" class="import-count">{{ $t('settingsBackup.importNothing') }}</span>
+              </div>
+              <div v-if="hasSettingsResult" class="import-settings">
+                <div v-if="appliedSettings.length" class="import-group" data-testid="import-applied">
+                  <div class="import-group-head">
+                    {{ $t('settingsBackup.importApplied', [appliedSettings.length]) }}
+                  </div>
+                  <ul class="import-keys">
+                    <li v-for="key in visible(appliedSettings, showApplied)" :key="key" class="code">{{ key }}</li>
+                  </ul>
+                  <button
+                    v-if="appliedSettings.length > LIST_PREVIEW"
+                    type="button"
+                    class="link"
+                    @click="showApplied = !showApplied"
+                  >
+                    {{ showApplied ? $t('settingsBackup.importShowLess') : $t('settingsBackup.importShowAll', [appliedSettings.length]) }}
+                  </button>
+                </div>
+                <div v-if="skippedSettings.length" class="import-group bad" data-testid="import-skipped">
+                  <div class="import-group-head">
+                    {{ $t('settingsBackup.importSkipped', [skippedSettings.length]) }}
+                  </div>
+                  <ul class="import-keys">
+                    <li v-for="key in visible(skippedSettings, showSkipped)" :key="key" class="code">{{ key }}</li>
+                  </ul>
+                  <button
+                    v-if="skippedSettings.length > LIST_PREVIEW"
+                    type="button"
+                    class="link"
+                    @click="showSkipped = !showSkipped"
+                  >
+                    {{ showSkipped ? $t('settingsBackup.importShowLess') : $t('settingsBackup.importShowAll', [skippedSettings.length]) }}
+                  </button>
+                  <p class="import-why">{{ $t('settingsBackup.importSkippedWhy') }}</p>
+                </div>
+              </div>
+              <p v-if="lastImport.backup" class="import-backup">
+                {{ $t('settingsBackup.importBackupFile') }}: <span class="code">{{ lastImport.backup }}</span>
+              </p>
             </div>
           </div>
         </section>
@@ -235,5 +311,73 @@ const TABLE_LABEL: Record<string, string> = {
 }
 .danger-zone .panel-head {
   border-bottom: 0;
+}
+/* 导入结果：表计数一行，设置项分“已应用 / 已跳过”两组，键名用等宽字 */
+.import-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+.import-result-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.import-result-head b {
+  color: var(--text);
+  font-weight: 600;
+}
+.import-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.import-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.import-group-head {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.import-group.bad .import-group-head {
+  color: var(--danger);
+}
+.import-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.import-keys li {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+.import-group.bad .import-keys li {
+  color: var(--text);
+}
+.import-why,
+.import-backup {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.import-group .link {
+  align-self: flex-start;
+  font-size: 11.5px;
 }
 </style>

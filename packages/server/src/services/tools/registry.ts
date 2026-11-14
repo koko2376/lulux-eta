@@ -123,6 +123,7 @@ export function listTools(): ToolSpec[] {
     group: 'business',
     permissions: tool.permissions,
     approval: tool.approval,
+    orgLevel: tool.orgLevel,
     noRemember: tool.noRemember,
     run: (args, ctx) => tool.run(args, ctx),
   }))

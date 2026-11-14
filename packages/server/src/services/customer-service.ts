@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { db } from '../db.js'
 import { AppError, notFound } from '../errors.js'
 import { newId } from '../utils/id.js'
@@ -113,6 +114,17 @@ export const customerPatchInput = z
   .partial()
   .strict()
 
+export const CUSTOMER_SORTS = ['updatedAt', 'createdAt', 'company'] as const
+export type CustomerSort = (typeof CUSTOMER_SORTS)[number]
+export const CUSTOMER_SORT_ORDERS = ['asc', 'desc'] as const
+export type CustomerSortOrder = (typeof CUSTOMER_SORT_ORDERS)[number]
+
+/** 单批最多 200 个 id；「全部筛选结果」最多 2000 行，超出请缩小筛选条件后重试 */
+export const BATCH_ID_LIMIT = 200
+export const BATCH_ALL_LIMIT = 2_000
+/** OFFSET 深分页的明确上限（行数）：超过后必须使用 cursor */
+export const LIST_OFFSET_LIMIT = 50_000
+
 export const listQueryInput = z.object({
   query: z.string().max(200).optional(),
   stage: z.enum(CUSTOMER_STAGES).optional(),
@@ -120,6 +132,10 @@ export const listQueryInput = z.object({
   country: z.string().max(100).optional(),
   ownerId: z.string().max(80).optional(),
   visibility: z.enum(VISIBILITIES).optional(),
+  sort: z.enum(CUSTOMER_SORTS).default('updatedAt'),
+  order: z.enum(CUSTOMER_SORT_ORDERS).default('desc'),
+  /** 键集（keyset）游标，base64url(JSON)；与筛选条件绑定，避免翻页重复/遗漏 */
+  cursor: z.string().max(1024).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
 })
@@ -151,6 +167,46 @@ export const importInput = z.object({
   onDuplicate: z.enum(['skip', 'merge']),
 })
 
+/** 服务端批量事务。一次请求一个事务，逐项 SAVEPOINT 隔离，返回逐项失败原因。 */
+export const batchParamsInput = z
+  .object({
+    stage: z.enum(CUSTOMER_STAGES).optional(),
+    ownerId: z.string().min(1).max(80).optional(),
+    visibility: z.enum(VISIBILITIES).optional(),
+    teamId: z.string().max(80).nullable().optional(),
+    tag: z.string().min(1).max(50).optional(),
+  })
+  .strict()
+
+export const CUSTOMER_BATCH_ACTIONS = ['stage', 'assign', 'addTag', 'removeTag', 'delete'] as const
+export type CustomerBatchAction = (typeof CUSTOMER_BATCH_ACTIONS)[number]
+
+export const batchInput = z
+  .object({
+    action: z.enum(CUSTOMER_BATCH_ACTIONS),
+    /** page = 本页已勾选的 id；all = 与当前筛选条件匹配的全部客户（上限 BATCH_ALL_LIMIT） */
+    scope: z.enum(['page', 'all']).default('page'),
+    ids: z.array(z.string().min(1).max(200)).max(BATCH_ID_LIMIT).default([]),
+    /** scope=all 时与列表完全相同的筛选条件（复用 listQueryInput，默认空筛选） */
+    filters: listQueryInput.prefault({}),
+    params: batchParamsInput.prefault({}),
+  })
+  .strict()
+
+export interface BatchFailure {
+  id: string
+  code: string
+  message: string
+}
+export interface BatchResult {
+  action: CustomerBatchAction
+  scope: 'page' | 'all'
+  /** 本次请求实际尝试的客户数 */
+  total: number
+  succeeded: number
+  failed: BatchFailure[]
+}
+
 // ── 规范化 ───────────────────────────────────────────
 
 export function companyKey(company: string): string {
@@ -180,6 +236,9 @@ function uniqueTags(tags: string[]): string[] {
 // ── 行映射 ───────────────────────────────────────────
 
 interface CustomerRow {
+  /** SELECT c.rowid AS _rowid / 排序列 AS _sort_key，生成下一页游标用 */
+  _rowid?: number
+  _sort_key?: string | number
   id: string
   company: string
   country: string
@@ -658,53 +717,180 @@ function assertNoDuplicate(candidate: DuplicateCandidate): void {
   )
 }
 
-export const customerService = {
-  list(input: unknown): { items: Customer[]; total: number } {
-    const query = parse(listQueryInput, input)
-    const scope = liveClause('c')
-    const where: string[] = [scope.sql]
-    const params: Array<string | number> = [...scope.params]
-    if (query.ownerId) {
-      where.push('c.owner_id = ?')
-      params.push(query.ownerId)
-    }
-    if (query.visibility) {
-      where.push('c.visibility = ?')
-      params.push(query.visibility)
-    }
-    if (query.query?.trim()) {
-      const like = `%${query.query.trim().toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`
-      where.push(
-        `(lower(c.company) LIKE ? ESCAPE '\\' OR lower(c.website) LIKE ? ESCAPE '\\' OR lower(c.country) LIKE ? ESCAPE '\\'
-          OR lower(c.notes) LIKE ? ESCAPE '\\'
-          OR EXISTS (SELECT 1 FROM contacts t WHERE t.customer_id = c.id AND (lower(t.name) LIKE ? ESCAPE '\\' OR lower(t.email) LIKE ? ESCAPE '\\')))`,
-      )
-      params.push(like, like, like, like, like, like)
-    }
-    if (query.stage) {
-      where.push('c.stage = ?')
-      params.push(query.stage)
-    }
-    if (query.tag) {
-      where.push('EXISTS (SELECT 1 FROM json_each(c.tags) j WHERE lower(j.value) = ?)')
-      params.push(query.tag.toLowerCase())
-    }
-    if (query.country?.trim()) {
-      where.push('lower(c.country) = ?')
-      params.push(query.country.trim().toLowerCase())
-    }
-    const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
-    const total = Number(
-      (db.prepare(`SELECT COUNT(*) AS n FROM customers c ${clause}`).get(...params) as unknown as { n: number }).n,
+
+/* ── 查询构造、稳定排序与键集游标 ───────────────────────── */
+
+type ListQuery = z.infer<typeof listQueryInput>
+
+/** 排序列（lower 化文本保证中英混排稳定；NULL 归到最后） */
+function sortExpr(sort: CustomerSort, alias = 'c'): string {
+  if (sort === 'createdAt') return `${alias}.created_at`
+  if (sort === 'company') return `lower(coalesce(${alias}.company, ''))`
+  return `${alias}.updated_at`
+}
+
+/**
+ * 列表筛选条件（服务层与批量「全部筛选结果」共用，保证两者语义逐字一致）。
+ * 包含式搜索走 FTS5 镜像：body LIKE 命中 trigram 索引（INDEX 0:L1），
+ * instr() 再做字面精确校验，避免用户输入的 % / _ 被当成 LIKE 通配符造成误召回。
+ * 1~2 字查询 trigram 无法命中索引，但仍是镜像表扫描，不会退回 customers 主表全扫。
+ */
+function customerListWhere(query: ListQuery): { clause: string; params: Array<string | number> } {
+  const scope = liveClause('c')
+  const where: string[] = [scope.sql]
+  const params: Array<string | number> = [...scope.params]
+  if (query.ownerId) {
+    where.push('c.owner_id = ?')
+    params.push(query.ownerId)
+  }
+  if (query.visibility) {
+    where.push('c.visibility = ?')
+    params.push(query.visibility)
+  }
+  const search = (query.query ?? '').trim().toLowerCase()
+  if (search) {
+    // 必须是非相关的 IN 子查询：EXISTS 会被 SQLite 变成 0:=L1 的相关子查询，
+    // 对 customers 每一行重扫一次 FTS（10k 行约 17s）；IN 只扫一次 FTS（约 2ms）。
+    where.push(
+      `c.rowid IN (SELECT s.rowid FROM customer_search s WHERE s.body LIKE ? AND instr(s.body, ?) > 0)`,
     )
+    params.push(`%${search}%`, search)
+  }
+  if (query.stage) {
+    where.push('c.stage = ?')
+    params.push(query.stage)
+  }
+  if (query.tag) {
+    where.push('EXISTS (SELECT 1 FROM customer_tags t WHERE t.customer_id = c.id AND t.tag_key = ?)')
+    params.push(query.tag.trim().toLowerCase())
+  }
+  if (query.country?.trim()) {
+    where.push('lower(coalesce(c.country, \'\')) = ?')
+    params.push(query.country.trim().toLowerCase())
+  }
+  return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params }
+}
+
+/** 游标只在同一组筛选 + 同一排序下有效，避免 A 筛选的游标被拿到 B 筛选翻页 */
+function cursorFingerprint(query: ListQuery, where: string, params: Array<string | number>): string {
+  return createHash('sha256')
+    .update(JSON.stringify([where, params, query.sort, query.order]))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+interface CursorPayload {
+  f: string
+  k: string | number
+  r: number
+  sort: CustomerSort
+  order: CustomerSortOrder
+}
+
+function encodeCursor(payload: CursorPayload): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+function decodeCursor(raw: string): CursorPayload | null {
+  try {
+    const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as CursorPayload
+    if (
+      !value ||
+      typeof value.f !== 'string' ||
+      typeof value.r !== 'number' ||
+      !CUSTOMER_SORTS.includes(value.sort) ||
+      !CUSTOMER_SORT_ORDERS.includes(value.order) ||
+      (typeof value.k !== 'string' && typeof value.k !== 'number')
+    ) {
+      return null
+    }
+    return value
+  } catch {
+    return null
+  }
+}
+
+/** 键集分页：绝不因翻页期间有新行插入而重复或遗漏；OFFSET 分页有明确行数上限 */
+function keysetClause(
+  cursor: CursorPayload,
+  sort: CustomerSort,
+): { sql: string; params: Array<string | number> } {
+  const col = sortExpr(sort)
+  const cmp = cursor.order === 'desc' ? '<' : '>'
+  return {
+    sql: `(${col} ${cmp} ? OR (${col} = ? AND c.rowid ${cmp} ?))`,
+    params: [cursor.k, cursor.k, cursor.r],
+  }
+}
+
+export const customerService = {
+  list(input: unknown): {
+    items: Customer[]
+    total: number
+    nextCursor: string | null
+    sort: CustomerSort
+    order: CustomerSortOrder
+    /** 使用了 cursor 分页时为 true；前端据此决定「下一页」还是「页码」 */
+    cursorPaged: boolean
+  } {
+    const query = parse(listQueryInput, input)
+    const { clause, params } = customerListWhere(query)
+    const fingerprint = cursorFingerprint(query, clause, params)
+    const sortCol = sortExpr(query.sort)
+    const direction = query.order === 'desc' ? 'DESC' : 'ASC'
+
+    let cursor: CursorPayload | null = null
+    const extraWhere: string[] = []
+    const extraParams: Array<string | number> = []
+    if (query.cursor) {
+      cursor = decodeCursor(query.cursor)
+      if (!cursor || cursor.f !== fingerprint || cursor.sort !== query.sort || cursor.order !== query.order) {
+        throw new AppError(400, 'VALIDATION_ERROR', '分页游标与当前筛选或排序不匹配，请重新筛选')
+      }
+      const keyset = keysetClause(cursor, query.sort)
+      extraWhere.push(keyset.sql)
+      extraParams.push(...keyset.params)
+    }
+
+    const whereSql = [clause ? clause.replace(/^WHERE /, '') : '', ...extraWhere].filter(Boolean).join(' AND ')
+    const fullWhere = whereSql ? `WHERE ${whereSql}` : ''
+    const fullParams = [...params, ...extraParams]
+
+    // total 每页都按完整筛选条件计数（不含游标条件），前端据此显示结果总数
+    const countParams = [...params]
+    const total = Number(
+      (db.prepare(`SELECT COUNT(*) AS n FROM customers c ${clause}`).get(...countParams) as unknown as { n: number }).n,
+    )
+
+    const offset = cursor ? 0 : (query.page - 1) * query.pageSize
+    if (!cursor && offset > LIST_OFFSET_LIMIT - query.pageSize) {
+      throw new AppError(
+        400,
+        'CURSOR_REQUIRED',
+        `页码过深（超过 ${LIST_OFFSET_LIMIT} 行），请使用 cursor 或缩小筛选条件`,
+      )
+    }
+
     const rows = db
-      .prepare(`SELECT c.* FROM customers c ${clause} ORDER BY c.updated_at DESC, c.rowid DESC LIMIT ? OFFSET ?`)
-      .all(...params, query.pageSize, (query.page - 1) * query.pageSize) as unknown as CustomerRow[]
+      .prepare(
+        `SELECT c.*, c.rowid AS _rowid, ${sortCol} AS _sort_key FROM customers c ${fullWhere}
+         ORDER BY ${sortCol} ${direction}, c.rowid ${direction} LIMIT ? OFFSET ?`,
+      )
+      .all(...fullParams, query.pageSize, offset) as unknown as CustomerRow[]
     const contacts = contactsFor(rows.map((row) => row.id))
     const follow = followUpsFor(rows.map((row) => row.id))
+    const last = rows.at(-1)
+    const nextCursor =
+      last && last._rowid !== undefined && last._sort_key !== undefined && rows.length === query.pageSize
+        ? encodeCursor({ f: fingerprint, k: last._sort_key, r: Number(last._rowid), sort: query.sort, order: query.order })
+        : null
     return {
       items: rows.map((row) => ({ ...toCustomer(row, contacts.get(row.id) ?? []), ...follow.get(row.id) })),
       total,
+      nextCursor,
+      sort: query.sort,
+      order: query.order,
+      cursorPaged: Boolean(cursor),
     }
   },
 
@@ -1115,6 +1301,94 @@ export const customerService = {
       )
       .all(...scope.params, limit) as unknown as ActivityRow[]
     return rows.map(toActivity)
+  },
+
+  /**
+   * 批量改阶段 / 分配 / 加标签 / 去标签 / 删除，全部在一个事务里执行。
+   * 每项用嵌套 SAVEPOINT 隔离：单项失败（无权限 / 404 / 名下有业务记录）只回滚该项，
+   * 其余照常提交，并把稳定错误码 + 原因逐项返回给前端；不因一项失败整批回滚。
+   */
+  batch(input: unknown): BatchResult {
+    const data = parse(batchInput, input)
+    requirePermission('data:write')
+    if (data.action === 'delete') requirePermission('customer:delete')
+    if (data.action === 'stage' && !data.params.stage) throw new AppError(400, 'VALIDATION_ERROR', '缺少目标阶段')
+    if (data.action === 'assign' && !data.params.ownerId) throw new AppError(400, 'VALIDATION_ERROR', '缺少接收负责人')
+    if ((data.action === 'addTag' || data.action === 'removeTag') && !data.params.tag) {
+      throw new AppError(400, 'VALIDATION_ERROR', '缺少标签')
+    }
+    if (data.action === 'assign' && !teamService.isOrgMember(data.params.ownerId!, currentActor().orgId)) {
+      throw new AppError(404, 'NOT_FOUND', '负责人不存在或已停用')
+    }
+
+    let ids: string[]
+    if (data.scope === 'page') {
+      if (!data.ids.length) throw new AppError(400, 'VALIDATION_ERROR', '本页批量操作需要至少一个客户 id')
+      ids = [...new Set(data.ids)]
+      if (ids.length > BATCH_ID_LIMIT) throw new AppError(400, 'BATCH_TOO_LARGE', `单批最多 ${BATCH_ID_LIMIT} 个客户`)
+    } else {
+      const { clause, params } = customerListWhere(data.filters)
+      const rows = db
+        .prepare(`SELECT c.id FROM customers c ${clause} ORDER BY c.rowid ASC LIMIT ?`)
+        .all(...params, BATCH_ALL_LIMIT + 1) as unknown as Array<{ id: string }>
+      if (rows.length > BATCH_ALL_LIMIT) {
+        throw new AppError(400, 'BATCH_TOO_LARGE', `筛选结果超过 ${BATCH_ALL_LIMIT} 个客户，请缩小筛选条件后重试`)
+      }
+      ids = rows.map((row) => row.id)
+    }
+
+    const failed: BatchFailure[] = []
+    let succeeded = 0
+    transaction(() => {
+      for (const id of ids) {
+        try {
+          // 内层事务 = SAVEPOINT：只回滚这一项的写操作与审计
+          transaction(() => customerService.applyBatchItem(id, data.action, data.params))
+          succeeded += 1
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error
+          failed.push({ id, code: error.code, message: error.message })
+        }
+      }
+    })
+    auditService.record({
+      action: 'customer.batch',
+      entityType: 'customer',
+      entityId: null,
+      summary: `批量${data.action}（${data.scope === 'page' ? '本页' : '全部筛选结果'}）：成功 ${succeeded} 个，失败 ${failed.length} 个`,
+      meta: { action: data.action, scope: data.scope, total: ids.length, succeeded, failed: failed.length },
+    })
+    return { action: data.action, scope: data.scope, total: ids.length, succeeded, failed }
+  },
+
+  /** 单项批量动作；调用方保证已在 SAVEPOINT 里 */
+  applyBatchItem(id: string, action: CustomerBatchAction, params: z.infer<typeof batchParamsInput>): void {
+    const current = customerService.requireWritable(id)
+    switch (action) {
+      case 'stage':
+        customerService.update(id, { stage: params.stage! })
+        return
+      case 'assign':
+        customerService.assign(id, {
+          ownerId: params.ownerId!,
+          ...(params.visibility !== undefined ? { visibility: params.visibility } : {}),
+          ...(params.teamId !== undefined ? { teamId: params.teamId } : {}),
+        })
+        return
+      case 'addTag':
+      case 'removeTag': {
+        const tag = params.tag!.trim()
+        const next =
+          action === 'addTag'
+            ? uniqueTags([...current.tags, tag])
+            : current.tags.filter((item) => item.toLowerCase() !== tag.toLowerCase())
+        customerService.update(id, { tags: next })
+        return
+      }
+      case 'delete':
+        customerService.remove(id)
+        return
+    }
   },
 
   /** CSV/XLSX 在客户端解析成 rows，这里按 mapping 取字段、去重、创建或合并 */

@@ -143,6 +143,12 @@ export class ChatRun {
     } catch {
       // ignore
     }
+    // 内置浏览器：运行结束立即释放租约（不等 90 秒空闲过期）
+    try {
+      browserControl.endRun(this.sessionId, this.id);
+    } catch {
+      // ignore
+    }
     for (const listener of [...this.listeners]) {
       try {
         listener.onEnd(this);

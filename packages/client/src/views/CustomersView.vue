@@ -19,6 +19,8 @@ import { downloadBlob, stamp } from '../lib/download'
 import { labelled, t } from '../i18n'
 import { trashConfirmMessage } from '../lib/trash'
 import { toCssRect } from '../lib/ui-zoom'
+import { localTimeFor } from '../lib/country-time'
+import { scopedKey } from '../lib/storage-scope'
 
 /**
  * 客户列表：列表 / 看板切换、计数行、勾选列、最近跟进 / 下次跟进（逾期红色）、负责人、行菜单、分页；
@@ -27,7 +29,7 @@ import { toCssRect } from '../lib/ui-zoom'
 type Row = api.Customer & api.CustomerFollowUp
 const route = useRoute()
 const router = useRouter()
-const PAGE_SIZE = 20
+const PAGE_SIZES = [20, 50, 100] as const
 const qs = (k: string) => (typeof route.query[k] === 'string' ? (route.query[k] as string) : '')
 
 const query = ref(qs('q'))
@@ -37,6 +39,86 @@ const country = ref(qs('country'))
 const owner = ref(qs('owner'))
 const mode = ref<'list' | 'board'>(qs('view') === 'board' ? 'board' : 'list')
 const page = ref(Number(route.query.page) || 1)
+/* ── 视图偏好（按账号 + 服务器保存在本机）：每页条数、可选列 ── */
+type OptCol = 'contact' | 'localTime' | 'tags' | 'source'
+interface ViewPrefs {
+  pageSize: (typeof PAGE_SIZES)[number]
+  cols: Record<OptCol, boolean>
+}
+const DEFAULT_PREFS: ViewPrefs = {
+  pageSize: 50,
+  cols: { contact: true, localTime: true, tags: true, source: false },
+}
+const prefsKey = scopedKey('lulux.customersView')
+function readPrefs(): ViewPrefs {
+  try {
+    const raw = JSON.parse(localStorage.getItem(prefsKey) ?? 'null') as Partial<ViewPrefs> | null
+    if (!raw || typeof raw !== 'object') return structuredClone(DEFAULT_PREFS)
+    return {
+      pageSize: PAGE_SIZES.includes(raw.pageSize as never) ? (raw.pageSize as ViewPrefs['pageSize']) : DEFAULT_PREFS.pageSize,
+      cols: { ...DEFAULT_PREFS.cols, ...(raw.cols && typeof raw.cols === 'object' ? raw.cols : {}) },
+    }
+  } catch {
+    return structuredClone(DEFAULT_PREFS)
+  }
+}
+const prefs = ref<ViewPrefs>(readPrefs())
+watch(prefs, (v) => {
+  try {
+    localStorage.setItem(prefsKey, JSON.stringify(v))
+  } catch {
+    /* 存储满或被禁用：只影响下次打开的默认值 */
+  }
+}, { deep: true })
+const OPT_COLS: OptCol[] = ['contact', 'localTime', 'tags', 'source']
+const pageSize = computed(() => prefs.value.pageSize)
+/** 表格可用宽度：窄窗口按优先级自动收起可选列（来源 → 标签 → 当地时间 → 主联系人），不出横向滚动 */
+const wrapEl = ref<HTMLElement | null>(null)
+const wrapWidth = ref(0)
+let resizeObs: ResizeObserver | null = null
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined') return
+  resizeObs = new ResizeObserver((entries) => (wrapWidth.value = entries[0]?.contentRect.width ?? 0))
+  if (wrapEl.value) resizeObs.observe(wrapEl.value)
+})
+watch(wrapEl, (el, prev) => {
+  if (prev) resizeObs?.unobserve(prev)
+  if (el) resizeObs?.observe(el)
+})
+onBeforeUnmount(() => resizeObs?.disconnect())
+const COL_WIDTH: Record<OptCol, number> = { contact: 190, localTime: 76, tags: 120, source: 96 }
+/** 固定列（勾选、国家、阶段、最近 / 下次跟进、负责人、操作）+ 公司名最小宽度 */
+const BASE_WIDTH = 40 + 64 + 78 + 84 + 104 + 84 + 40 + 220
+const autoHidden = computed<Set<OptCol>>(() => {
+  const hidden = new Set<OptCol>()
+  if (!wrapWidth.value) return hidden
+  const wanted = OPT_COLS.filter((c) => prefs.value.cols[c])
+  let width = BASE_WIDTH + wanted.reduce((n, c) => n + COL_WIDTH[c], 0)
+  for (const c of ['source', 'tags', 'localTime', 'contact'] as OptCol[]) {
+    if (width <= wrapWidth.value) break
+    if (!wanted.includes(c)) continue
+    hidden.add(c)
+    width -= COL_WIDTH[c]
+  }
+  return hidden
+})
+const showCol = (c: OptCol) => prefs.value.cols[c] && !autoHidden.value.has(c)
+
+/* ── 排序（服务端稳定排序） ── */
+const SORTS = ['updatedAt', 'createdAt', 'company'] as const
+type SortKey = (typeof SORTS)[number]
+const sort = ref<SortKey>((SORTS as readonly string[]).includes(qs('sort')) ? (qs('sort') as SortKey) : 'updatedAt')
+const order = computed<'asc' | 'desc'>(() => (sort.value === 'company' ? 'asc' : 'desc'))
+
+/* ── 当地时间每分钟刷新一次 ── */
+const now = ref(Date.now())
+let clock = 0
+onMounted(() => {
+  clock = window.setInterval(() => (now.value = Date.now()), 60_000)
+})
+onBeforeUnmount(() => window.clearInterval(clock))
+const localTime = (c: Row) => localTimeFor(c.country, now.value)
+
 const items = ref<Row[]>([])
 const total = ref(0)
 const loading = ref(true)
@@ -74,13 +156,13 @@ async function load(): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    const res = await api.listCustomers({ ...filters(), page: page.value, pageSize: PAGE_SIZE })
+    const res = await api.listCustomers({ ...filters(), sort: sort.value, order: order.value, page: page.value, pageSize: pageSize.value })
     if (mine !== seq) return
     items.value = res.items
     total.value = res.total
     selected.value = new Set([...selected.value].filter((id) => res.items.some((c) => c.id === id)))
     if (!res.items.length && page.value > 1 && res.total > 0) {
-      page.value = Math.max(1, Math.ceil(res.total / PAGE_SIZE))
+      page.value = Math.max(1, Math.ceil(res.total / pageSize.value))
     }
   } catch (error) {
     if (mine === seq) loadError.value = errorText(error)
@@ -142,6 +224,7 @@ function syncUrl(): void {
   if (country.value) q.country = country.value
   if (owner.value) q.owner = owner.value
   if (mode.value === 'board') q.view = 'board'
+  if (sort.value !== 'updatedAt') q.sort = sort.value
   if (page.value > 1 && mode.value === 'list') q.page = String(page.value)
   void router.replace({ query: q })
 }
@@ -155,7 +238,7 @@ watch(query, () => {
     void load()
   }, 250)
 })
-watch([stage, tag, country, owner, mode], () => {
+watch([stage, tag, country, owner, mode, sort, pageSize], () => {
   page.value = 1
   syncUrl()
   void load()
@@ -233,29 +316,84 @@ function toggle(id: string): void {
   selected.value = next
 }
 function toggleAll(): void {
+  allMatching.value = false
   selected.value = allChecked.value ? new Set() : new Set(items.value.map((c) => c.id))
+}
+/** 选中“全部筛选结果”（跨页，由服务端按同一组筛选条件取，上限 2000） */
+const allMatching = ref(false)
+const BATCH_ALL_LIMIT = 2000
+const selCount = computed(() => (allMatching.value ? total.value : selected.value.size))
+function clearSelection(): void {
+  allMatching.value = false
+  selected.value = new Set()
+}
+watch([query, stage, tag, country, owner], () => (allMatching.value = false))
+function batchTarget(): Pick<api.CustomerBatchRequest, 'scope' | 'ids' | 'filters'> {
+  return allMatching.value
+    ? { scope: 'all', filters: filters() }
+    : { scope: 'page', ids: [...selected.value] }
+}
+const nameOf = (id: string) => items.value.find((c) => c.id === id)?.company ?? id
+/** 服务端批量：成功数 + 逐项失败原因；失败的客户保持勾选，方便处理后重试 */
+async function runBatch(
+  req: Omit<api.CustomerBatchRequest, 'scope' | 'ids' | 'filters'>,
+  okMsg: (n: number) => string,
+): Promise<boolean> {
+  bulkBusy.value = true
+  try {
+    const res = await api.batchCustomers({ ...req, ...batchTarget() })
+    if (!res.failed.length) toast.success(okMsg(res.succeeded))
+    else
+      toast.error(
+        t('custx.batchPartial', [
+          res.succeeded,
+          res.failed.length,
+          res.failed
+            .slice(0, 5)
+            .map((f) => labelled(nameOf(f.id), f.message))
+            .join(t('fmt.clauseSep')),
+        ]),
+      )
+    if (req.action === 'delete') for (const id of selected.value) if (!res.failed.some((f) => f.id === id)) forgetCustomer(id)
+    allMatching.value = false
+    selected.value = new Set(res.failed.map((f) => f.id).filter((id) => items.value.some((c) => c.id === id)))
+    void load()
+    void loadCounts()
+    return true
+  } catch (error) {
+    toast.error(errorText(error))
+    return false
+  } finally {
+    bulkBusy.value = false
+  }
+}
+const bulkTagText = ref('')
+async function bulkTag(action: 'addTag' | 'removeTag'): Promise<void> {
+  const tagName = bulkTagText.value.trim()
+  if (!tagName) return
+  const ok = await runBatch({ action, params: { tag: tagName } }, (n) =>
+    t(action === 'addTag' ? 'custx.bulkTagged' : 'custx.bulkUntagged', [n, tagName]),
+  )
+  if (ok) bulkTagText.value = ''
+}
+async function bulkAssign(event: Event): Promise<void> {
+  const el = event.target as HTMLSelectElement
+  const ownerId = el.value
+  el.value = ''
+  if (!ownerId || !selCount.value) return
+  const name = facets.value?.owners.find((o) => o.id === ownerId)?.name ?? ownerId
+  await runBatch({ action: 'assign', params: { ownerId } }, (n) => t('custx.bulkAssigned', [n, name]))
 }
 const bulkBusy = ref(false)
 async function bulkStage(event: Event): Promise<void> {
   const el = event.target as HTMLSelectElement
   const next = el.value as api.Stage
   el.value = ''
-  if (!next || !selected.value.size) return
-  bulkBusy.value = true
-  try {
-    for (const id of selected.value) await api.updateCustomer(id, { stage: next })
-    toast.success(t('custx.bulkStaged', [selected.value.size, STAGE_LABEL[next]]))
-    selected.value = new Set()
-    void load()
-    void loadCounts()
-  } catch (error) {
-    toast.error(errorText(error))
-  } finally {
-    bulkBusy.value = false
-  }
+  if (!next || !selCount.value) return
+  await runBatch({ action: 'stage', params: { stage: next } }, (n) => t('custx.bulkStaged', [n, STAGE_LABEL[next]]))
 }
 async function bulkDelete(): Promise<void> {
-  const n = selected.value.size
+  const n = selCount.value
   if (!n) return
   const ok = await confirmDialog({
     title: t('custx.bulkDeleteTitle', [n]),
@@ -264,31 +402,7 @@ async function bulkDelete(): Promise<void> {
     danger: true,
   })
   if (!ok) return
-  bulkBusy.value = true
-  // 逐个删除：名下有订单 / 收款 / 报价 / 商机的客户服务端返回 409，跳过并汇总原因，其余照常删除
-  const failed: { id: string; reason: string }[] = []
-  try {
-    for (const id of selected.value) {
-      try {
-        await api.deleteCustomer(id, { silent: true })
-        forgetCustomer(id)
-      } catch (error) {
-        const company = items.value.find((c) => c.id === id)?.company ?? id
-        failed.push({ id, reason: labelled(company, errorText(error)) })
-      }
-    }
-    const deleted = n - failed.length
-    if (!failed.length) toast.success(t('custx.bulkDeleted', [n]))
-    else
-      toast.error(
-        t('custx.bulkDeletePartial', [deleted, failed.length, failed.map((f) => f.reason).join(t('fmt.clauseSep'))]),
-      )
-    selected.value = new Set(failed.map((f) => f.id))
-    void load()
-    void loadCounts()
-  } finally {
-    bulkBusy.value = false
-  }
+  await runBatch({ action: 'delete' }, (done) => t('custx.bulkDeleted', [done]))
 }
 
 /* ── 行菜单 ··· ── */
@@ -448,43 +562,44 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
           <h2 class="page-h">{{ heading }}</h2>
           <div class="head-count">{{ loading && !items.length && !facets ? '' : countLine }}</div>
         </div>
-        <div class="tb-spacer"></div>
-        <div class="segmented" role="tablist" :aria-label="$t('custx.viewLabel')">
+        <div class="head-actions">
+          <div class="segmented" role="tablist" :aria-label="$t('custx.viewLabel')">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="mode === 'list'"
+              :class="{ on: mode === 'list' }"
+              @click="mode = 'list'"
+            >
+              {{ $t('custx.list') }}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="mode === 'board'"
+              :class="{ on: mode === 'board' }"
+              @click="mode = 'board'"
+            >
+              {{ $t('custx.board') }}
+            </button>
+          </div>
           <button
+            v-perm="'data:export'"
             type="button"
-            role="tab"
-            :aria-selected="mode === 'list'"
-            :class="{ on: mode === 'list' }"
-            @click="mode = 'list'"
+            class="btn"
+            :disabled="exporting || !total"
+            data-testid="customers-export"
+            @click="exportCsv"
           >
-            {{ $t('custx.list') }}
+            {{ exporting ? $t('customers.exporting') : $t('customers.exportCsv') }}
           </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="mode === 'board'"
-            :class="{ on: mode === 'board' }"
-            @click="mode = 'board'"
-          >
-            {{ $t('custx.board') }}
+          <RouterLink v-perm:hide="['data:write', 'customer:import']" class="btn" to="/customers/import">{{
+            $t('customers.k14fjh9e')
+          }}</RouterLink>
+          <button v-perm="'data:write'" type="button" class="btn dark" @click="showCreate = true">
+            {{ $t('customers.kr9abat') }}
           </button>
         </div>
-        <button
-          v-perm="'data:export'"
-          type="button"
-          class="btn"
-          :disabled="exporting || !total"
-          data-testid="customers-export"
-          @click="exportCsv"
-        >
-          {{ exporting ? $t('customers.exporting') : $t('customers.exportCsv') }}
-        </button>
-        <RouterLink v-perm:hide="['data:write', 'customer:import']" class="btn" to="/customers/import">{{
-          $t('customers.k14fjh9e')
-        }}</RouterLink>
-        <button v-perm="'data:write'" type="button" class="btn dark" @click="showCreate = true">
-          {{ $t('customers.kr9abat') }}
-        </button>
       </div>
 
       <div v-if="filtered" class="filter-line">
@@ -561,14 +676,79 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
       </StateBlock>
 
       <!-- 列表 -->
-      <div v-else class="table-wrap" :class="{ 'is-loading': loading }">
-        <div v-if="selected.size" class="bulk-bar" data-testid="customers-bulk">
-          <b>{{ $t('custx.selected', [selected.size]) }}</b>
+      <div v-else ref="wrapEl" class="table-wrap" :class="{ 'is-loading': loading }">
+        <div class="list-tools" data-testid="customers-tools">
+          <label class="tool">
+            <span class="tool-l">{{ $t('custx.sortBy') }}</span>
+            <select v-model="sort" class="select sm" data-testid="customers-sort">
+              <option value="updatedAt">{{ $t('custx.sortUpdated') }}</option>
+              <option value="createdAt">{{ $t('custx.sortCreated') }}</option>
+              <option value="company">{{ $t('custx.sortCompany') }}</option>
+            </select>
+          </label>
+          <details class="cols-pop">
+            <summary class="btn sm">{{ $t('custx.columns') }}</summary>
+            <div class="cols-menu" role="group" :aria-label="$t('custx.columns')">
+              <label v-for="col in OPT_COLS" :key="col">
+                <input v-model="prefs.cols[col]" type="checkbox" class="cb" />
+                <span>{{ $t(`custx.col_${col}`) }}</span>
+              </label>
+              <p v-if="autoHidden.size" class="cols-hint">{{ $t('custx.autoHidden') }}</p>
+            </div>
+          </details>
+          <div class="tb-spacer"></div>
+          <label class="tool">
+            <span class="tool-l">{{ $t('custx.perPage') }}</span>
+            <select v-model.number="prefs.pageSize" class="select sm" data-testid="customers-page-size">
+              <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="selected.size || allMatching" class="bulk-bar" data-testid="customers-bulk">
+          <b>{{ $t('custx.selected', [selCount]) }}</b>
+          <button
+            v-if="allChecked && !allMatching && total > items.length"
+            type="button"
+            class="link"
+            data-testid="customers-select-all-matching"
+            :disabled="total > BATCH_ALL_LIMIT"
+            :title="total > BATCH_ALL_LIMIT ? $t('custx.allTooMany', [BATCH_ALL_LIMIT]) : undefined"
+            @click="allMatching = true"
+          >
+            {{ $t('custx.selectAllMatching', [total]) }}
+          </button>
           <template v-if="can('data:write')">
             <select class="select sm" :disabled="bulkBusy" :aria-label="$t('custx.bulkStage')" @change="bulkStage">
               <option value="">{{ $t('custx.bulkStage') }}</option>
               <option v-for="s in api.STAGES" :key="s" :value="s">{{ STAGE_LABEL[s] }}</option>
             </select>
+            <select
+              v-if="(facets?.owners.length ?? 0) > 1"
+              class="select sm"
+              :disabled="bulkBusy"
+              :aria-label="$t('custx.bulkAssign')"
+              @change="bulkAssign"
+            >
+              <option value="">{{ $t('custx.bulkAssign') }}</option>
+              <option v-for="o in facets?.owners ?? []" :key="o.id" :value="o.id">{{ o.name || o.id }}</option>
+            </select>
+            <span class="bulk-tag">
+              <input
+                v-model="bulkTagText"
+                class="input sm"
+                maxlength="50"
+                :placeholder="$t('custx.tagPh')"
+                :aria-label="$t('custx.tagPh')"
+                data-testid="customers-bulk-tag"
+                @keydown.enter.prevent="bulkTag('addTag')"
+              />
+              <button type="button" class="kbtn sm" :disabled="bulkBusy || !bulkTagText.trim()" @click="bulkTag('addTag')">
+                {{ $t('custx.addTag') }}
+              </button>
+              <button type="button" class="kbtn sm" :disabled="bulkBusy || !bulkTagText.trim()" @click="bulkTag('removeTag')">
+                {{ $t('custx.removeTag') }}
+              </button>
+            </span>
             <button
               v-perm="['data:write', 'customer:delete']"
               type="button"
@@ -580,20 +760,23 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
               {{ $t('custx.delete') }}
             </button>
           </template>
-          <button type="button" class="link" @click="selected = new Set()">{{ $t('custx.clearSel') }}</button>
+          <button type="button" class="link" @click="clearSelection">{{ $t('custx.clearSel') }}</button>
         </div>
         <div class="table-scroll-x">
           <table class="ctable data-table">
             <colgroup>
-              <col style="width: 44px" />
+              <col style="width: 40px" />
               <col />
+              <col v-if="showCol('contact')" style="width: 190px" />
+              <col style="width: 64px" />
+              <col v-if="showCol('localTime')" style="width: 76px" />
+              <col style="width: 78px" />
+              <col v-if="showCol('tags')" style="width: 120px" />
+              <col style="width: 84px" />
               <col style="width: 104px" />
-              <col style="width: 92px" />
-              <col style="width: 112px" />
-              <col style="width: 150px" />
-              <col style="width: 96px" />
-              <col style="width: 110px" />
-              <col style="width: 52px" />
+              <col style="width: 84px" />
+              <col v-if="showCol('source')" style="width: 96px" />
+              <col style="width: 40px" />
             </colgroup>
             <thead>
               <tr>
@@ -606,13 +789,20 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
                     @change="toggleAll"
                   />
                 </th>
-                <th>{{ $t('customers.k1v5iwp2') }}</th>
+                <th :aria-sort="sort === 'company' ? 'ascending' : undefined">
+                  <button type="button" class="th-sort" :class="{ on: sort === 'company' }" @click="sort = sort === 'company' ? 'updatedAt' : 'company'">
+                    {{ $t('customers.k1v5iwp2') }}<span v-if="sort === 'company'" aria-hidden="true">↑</span>
+                  </button>
+                </th>
+                <th v-if="showCol('contact')">{{ $t('custx.col_contact') }}</th>
                 <th>{{ $t('custx.country') }}</th>
+                <th v-if="showCol('localTime')" :title="$t('custx.localTimeTip')">{{ $t('custx.col_localTime') }}</th>
                 <th>{{ $t('customers.kl9iz6y') }}</th>
+                <th v-if="showCol('tags')">{{ $t('custx.col_tags') }}</th>
                 <th>{{ $t('custx.lastFollow') }}</th>
                 <th>{{ $t('custx.nextFollow') }}</th>
                 <th>{{ $t('custx.owner') }}</th>
-                <th>{{ $t('customers.k1j08rmu') }}</th>
+                <th v-if="showCol('source')">{{ $t('custx.col_source') }}</th>
                 <th>
                   <span class="sr-only">{{ $t('custx.actions') }}</span>
                 </th>
@@ -639,20 +829,36 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
                 </td>
                 <td>
                   <div class="cust">
-                    <InitialBadge :name="c.company" :size="28" />
                     <div class="cust-txt">
-                      <RouterLink class="cust-name" :to="`/customers/${c.id}`" tabindex="-1" @click.stop>{{
+                      <RouterLink class="cust-name" :to="`/customers/${c.id}`" :title="c.company" tabindex="-1" @click.stop>{{
                         c.company
                       }}</RouterLink>
-                      <div class="cust-mail">
-                        {{ primary(c)?.email || primary(c)?.name || $t('customers.k6tqy4q') }}
-                      </div>
                     </div>
                   </div>
                 </td>
+                <td v-if="showCol('contact')" class="ellip contact-cell" :title="[primary(c)?.name, primary(c)?.email || primary(c)?.phone || primary(c)?.whatsapp].filter(Boolean).join(' · ') || undefined">
+                  <template v-if="primary(c)">
+                    <span class="ct-name">{{ primary(c)?.name || '—' }}</span>
+                    <span v-if="primary(c)?.email || primary(c)?.phone || primary(c)?.whatsapp" class="dim">
+                      · {{ primary(c)?.email || primary(c)?.phone || primary(c)?.whatsapp }}</span
+                    >
+                  </template>
+                  <span v-else class="dim">{{ $t('customers.k6tqy4q') }}</span>
+                </td>
                 <td class="dim ellip" :title="c.country || undefined">{{ c.country || '—' }}</td>
+                <td v-if="showCol('localTime')" class="tnum" :title="localTime(c)?.tz">
+                  <span v-if="localTime(c)" class="ltime" :class="{ work: localTime(c)?.workHours }"
+                    ><i class="ldot" aria-hidden="true"></i>{{ localTime(c)?.approx ? $t('custx.approx') : '' }}{{ localTime(c)?.text }}</span
+                  >
+                  <span v-else class="dim">—</span>
+                </td>
                 <td>
                   <span class="stage-pill" :class="`s-${c.stage}`">{{ STAGE_LABEL[c.stage] ?? c.stage }}</span>
+                </td>
+                <td v-if="showCol('tags')" class="ellip" :title="c.tags.join(', ') || undefined">
+                  <span v-for="tg in c.tags.slice(0, 2)" :key="tg" class="mini-tag">{{ tg }}</span>
+                  <span v-if="c.tags.length > 2" class="dim">+{{ c.tags.length - 2 }}</span>
+                  <span v-if="!c.tags.length" class="dim">—</span>
                 </td>
                 <td class="dim tnum">{{ lastTouch(c) }}</td>
                 <td class="tnum ellip" :title="c.nextTask?.title">
@@ -662,7 +868,7 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
                   <span v-else class="dim">—</span>
                 </td>
                 <td class="dim ellip">{{ c.ownerName || '—' }}</td>
-                <td class="dim ellip" :title="c.source || undefined">{{ c.source || '—' }}</td>
+                <td v-if="showCol('source')" class="dim ellip" :title="c.source || undefined">{{ c.source || '—' }}</td>
                 <td class="act-cell" @click.stop>
                   <button
                     type="button"
@@ -682,7 +888,7 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
             </tbody>
           </table>
         </div>
-        <UiPager v-model:page="page" class="pager-in" :page-size="PAGE_SIZE" :total="total" />
+        <UiPager v-model:page="page" class="pager-in" :page-size="pageSize" :total="total" />
       </div>
     </div>
 
@@ -731,11 +937,28 @@ const lastTouch = (c: Row) => (c.lastTouchAt ? relativeTime(c.lastTouchAt) : '�
 <style scoped>
 .head-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   margin-bottom: 16px;
 }
+/* 窄窗口下按钮整组换到下一行并靠右，标题不被挤成两行、按钮不出界 */
+.head-row > :first-child {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: auto;
+}
 .page-h {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   margin: 0;
   font-size: 21px;
   font-weight: 600;
@@ -905,13 +1128,6 @@ td .cb {
 .cust-name:hover {
   text-decoration: underline;
 }
-.cust-mail {
-  font-size: 11.5px;
-  color: var(--text-tertiary);
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .dim {
   color: var(--text-tertiary);
   font-size: 12.5px;
@@ -969,7 +1185,155 @@ td .cb {
   font-size: 12.5px;
 }
 .bulk-bar .select {
-  width: 140px;
+  width: auto;
+  max-width: 170px;
+}
+.bulk-bar {
+  flex-wrap: wrap;
+}
+.bulk-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.input.sm {
+  height: 32px;
+  width: 104px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.list-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-l {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.tool .select {
+  width: auto;
+}
+.btn.sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.cols-pop {
+  position: relative;
+}
+.cols-pop > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.cols-pop > summary::-webkit-details-marker {
+  display: none;
+}
+.cols-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop, 0 8px 24px rgba(0, 0, 0, 0.12));
+}
+.cols-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cols-menu label:hover {
+  background: var(--surface-soft);
+}
+.cols-hint {
+  margin: 4px 8px 2px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  white-space: normal;
+}
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.th-sort:hover,
+.th-sort.on {
+  color: var(--text);
+}
+.ctable tbody td {
+  height: 50px;
+  padding: 0 10px;
+}
+.ctable thead th {
+  padding: 0 10px;
+}
+.ctable {
+  min-width: 0;
+}
+.ctable .cust-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.contact-cell .ct-name {
+  color: var(--text);
+}
+.ltime {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+}
+.ltime.work {
+  color: var(--text-secondary);
+}
+.ldot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: none;
+}
+.ltime.work .ldot {
+  background: var(--stage-5);
+}
+.mini-tag {
+  display: inline-block;
+  max-width: 64px;
+  margin-right: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .is-loading {
   opacity: 0.6;

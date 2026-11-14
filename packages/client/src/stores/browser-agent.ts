@@ -43,6 +43,15 @@ function hideLater(ms: number): void {
 /** 收到一步活动：同一会话累加步数，换了会话从 1 开始 */
 export function recordBrowserActivity(activity: BrowserAgentActivity): void {
   const sessionId = activity.sessionId ?? ''
+  // 运行结束、桌面端已释放租约：立即收起，不残留“第 N 步”
+  if (activity.action === 'release') {
+    if (sessionId !== browserAgent.sessionId) return
+    clearHide()
+    browserAgent.visible = false
+    browserAgent.step = 0
+    browserAgent.state = 'running'
+    return
+  }
   clearHide()
   if (!browserAgent.visible || sessionId !== browserAgent.sessionId) {
     browserAgent.step = 0

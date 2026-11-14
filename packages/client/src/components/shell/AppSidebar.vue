@@ -8,11 +8,13 @@ import { NAV_ENTRIES, navEntryFor, type NavIcon } from '../../lib/nav'
 import { SIDE_SLOT_ID } from '../../lib/side-slot'
 import { onTitleBarDoubleClick, windowChrome } from '../../lib/window'
 import { isMac } from '../../lib/shortcuts'
+import { whatsappShell, type WhatsAppConnection } from '../../lib/whatsapp'
+import { onMailCountsChanged } from '../../lib/mail-counts'
 
 /**
  * 全局侧栏（单侧栏，宽 280，收起 64）：
  * 顶部窗口拖拽区 + 收起按钮；中部是当前页面传送进来的二级栏（会话列表 / 筛选 / 设置分类）；
- * 底部 6 个主入口（LULUX / 工作台 / 客户 / 邮箱 / 工作流 / 技能）+ 账户与设置。
+ * 底部 7 个主入口（LULUX / 工作台 / 客户 / 邮箱 / WhatsApp / 工作流 / 技能）+ 账户与设置。
  */
 const route = useRoute()
 const section = computed(() => String(route.meta.section ?? ''))
@@ -23,6 +25,16 @@ const username = computed(() =>
   auth.connection === 'remote' || auth.mode === 'server' ? auth.me?.user.name || auth.me?.user.email || 'koko' : auth.local.username || 'koko',
 )
 const initial = computed(() => username.value.trim().slice(0, 1).toUpperCase() || 'K')
+
+/** WhatsApp 入口：未读数与连接状态来自同一份共享状态 */
+const WHATSAPP_STATE_LABEL: Record<WhatsAppConnection, string> = {
+  connected: 'appRail.whatsappStateConnected',
+  connecting: 'appRail.whatsappStateConnecting',
+  disconnected: 'appRail.whatsappStateDisconnected',
+  reauth: 'appRail.whatsappStateReauth',
+}
+const whatsappUnread = computed(() => whatsappShell.unread)
+const whatsappStateLabel = computed(() => WHATSAPP_STATE_LABEL[whatsappShell.connection])
 
 /** 邮箱入口的未读角标：60 秒 / 窗口获得焦点 / 切换页面时静默刷新；没有邮箱或没有权限时不显示 */
 const unread = ref(0)
@@ -44,12 +56,16 @@ async function loadUnread(): Promise<void> {
 function onFocus(): void {
   void loadUnread()
 }
+let offMailCounts: () => void = () => undefined
 onMounted(() => {
   void loadUnread()
   timer = window.setInterval(() => void loadUnread(), 60_000)
   window.addEventListener('focus', onFocus)
+  // 邮箱页改了判定 / 复核后立即刷新角标
+  offMailCounts = onMailCountsChanged(onFocus)
 })
 onBeforeUnmount(() => {
+  offMailCounts()
   window.clearInterval(timer)
   window.removeEventListener('focus', onFocus)
 })
@@ -113,6 +129,12 @@ watch(section, () => void loadUnread())
             <rect x="3" y="5.2" width="18" height="13.6" rx="3" />
             <path d="m3.8 7 7.3 5.3a1.5 1.5 0 0 0 1.8 0L20.2 7" />
           </svg>
+          <svg v-else-if="entry.id === 'whatsapp'" aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M20.5 11.7a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.4-4.3a8.5 8.5 0 1 1 15.6-4.5z" />
+            <path
+              d="M9.1 7.9c.4-.1.8 0 1 .4l.9 1.4c.1.3.1.5-.1.7l-.5.5c-.2.2-.2.4-.1.6.4.8 1 1.4 1.8 1.8.2.1.4.1.6-.1l.5-.5c.2-.2.4-.2.7-.1l1.4.9c.4.2.5.6.4 1-.2.7-.7 1.2-1.4 1.4-1.5.4-4.1-.9-5.7-2.5-1.6-1.6-2.9-4.2-2.5-5.7.2-.7.7-1.2 1.4-1.4z"
+            />
+          </svg>
           <svg v-else-if="entry.id === 'workflows'" aria-hidden="true" viewBox="0 0 24 24">
             <rect x="3.5" y="4" width="6" height="5" rx="1.8" />
             <rect x="14.5" y="4" width="6" height="5" rx="1.8" />
@@ -130,6 +152,22 @@ watch(section, () => void loadUnread())
             :aria-label="$t('shellx.mailUnread', [unread])"
             >{{ unread > 99 ? '99+' : unread }}</span
           >
+          <span
+            v-if="entry.id === 'whatsapp' && whatsappUnread > 0"
+            class="as-badge"
+            :class="{ wide: whatsappUnread > 99 }"
+            data-testid="whatsapp-badge"
+            :aria-label="$t('appRail.whatsappUnread', [whatsappUnread])"
+            >{{ whatsappUnread > 99 ? '99+' : whatsappUnread }}</span
+          >
+          <span
+            v-if="entry.id === 'whatsapp'"
+            class="as-state-dot"
+            :class="whatsappShell.connection"
+            data-testid="whatsapp-state-dot"
+            role="img"
+            :aria-label="$t(whatsappStateLabel)"
+          ></span>
         </span>
         <span class="as-nav-label">{{ $t(entry.label) }}</span>
       </RouterLink>

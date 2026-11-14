@@ -44,6 +44,17 @@ function stateOf(email: string) {
   return { ...row, suppressed }
 }
 
+describe('PATCH 只改一项不重置其它设置', () => {
+  it('改名不会把时段 / 每日上限 / 周末设置写回默认值', async () => {
+    const s = await mkSeq({ windowStart: 8, windowEnd: 20, dailyLimit: 7, includeOptout: false })
+    expect(s.status, s.text).toBe(201)
+    const p = await server.request('PATCH', `/api/sequences/${s.json.id ?? s.json.sequence?.id}`, { body: { name: '改名' } })
+    expect(p.status, p.text).toBe(200)
+    const seq = p.json.sequence ?? p.json
+    expect(seq).toMatchObject({ name: '改名', windowStart: 8, windowEnd: 20, dailyLimit: 7, includeOptout: false, skipWeekends: false })
+  })
+})
+
 describe('回信只看新写的部分：引用原文里的退订说明不算退订', () => {
   const FOOTER = `> --\n> If you'd rather not receive further emails from us, just reply "unsubscribe".`
 

@@ -23,6 +23,7 @@ export interface GuardResult {
  * 蒙古文元音分隔符 U+180E。检查时把它们换成空格（免得 `previous\u200Binstructions` 粘成一个词绕过规则），
  * 同时再检查一遍直接删掉后的形态（`ign\u200Bore` → ignore）；保存的是删掉后的文本。
  */
+// eslint-disable-next-line no-misleading-character-class -- 故意逐个匹配变体选择符等不可见字符
 const HIDDEN = /[\p{Cf}\u{E0000}-\u{E007F}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u180E]/gu
 /** 各种连字符 / 破折号 / 减号统一成 ASCII “-”（`sk‑proj‑…` 用 U+2011 绕过密钥规则） */
 const DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D\u2E3A\u2E3B]/g

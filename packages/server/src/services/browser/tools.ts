@@ -217,10 +217,6 @@ async function saveScreenshot(ctx: ToolContext, dataUrl: string, action: string)
   return { path: written.path, bytes: written.bytes }
 }
 
-function screenshotUrl(ctx: ToolContext, path: string): string {
-  return `/api/chat/sessions/${encodeURIComponent(ctx.sessionId)}/files?path=${encodeURIComponent(path)}`
-}
-
 /** 当前标签页（审批卡片用）；不能用 snapshot，否则会让模型手里的编号失效 */
 async function currentPage(ctx: ToolContext): Promise<PageInfo | null> {
   try {

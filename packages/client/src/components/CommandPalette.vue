@@ -93,6 +93,7 @@ const PAGES: Array<{ path: string; key: string }> = [
   { path: '/quotation', key: 'shortcuts.pageQuotation' },
   { path: '/orders', key: 'shortcuts.pageOrders' },
   { path: '/mailbox', key: 'shortcuts.pageMailbox' },
+  { path: '/whatsapp', key: 'shortcuts.pageWhatsapp' },
   { path: '/workflows', key: 'shortcuts.pageWorkflows' },
   { path: '/schedules', key: 'shortcuts.pageSchedules' },
   { path: '/skills', key: 'shortcuts.pageSkills' },

@@ -156,6 +156,9 @@ const RULES: Rule[] = [
   // 长期记忆（契约 §6.11）：账号自己的个人数据，只读角色也能管理自己的记忆；只作用于本人（服务层按当前账号）
   { methods: W, path: /^\/api\/memory(\/|$)/, check: 'data:read' },
 
+  // WhatsApp 关联设备（契约 §12）：本机账号绑定、会话与消息、快捷回复、出口代理，写操作需要数据写权限；解绑审计在服务层
+  { methods: ['POST'], path: /^\/api\/whatsapp\/(risk-acceptance|link\/start|link\/pairing-code|link\/refresh-qr|link\/stop|logout|conversations(\/[^/]+\/(messages|read))?|messages\/[^/]+\/retry|translate|quick-replies|proxy\/test)$/, check: 'data:write' },
+
   // 回收站：恢复需要 data:write；彻底删除另需对应的 *:delete（团队服务器还要求 owner/admin），在服务层校验
   { methods: ['POST'], path: /^\/api\/trash\/[^/]+\/[^/]+\/restore$/, check: 'data:write' },
   { methods: ['DELETE'], path: /^\/api\/trash\/[^/]+\/[^/]+$/, check: 'data:write' },

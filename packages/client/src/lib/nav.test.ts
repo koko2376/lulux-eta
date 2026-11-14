@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tabActive, tabsFor } from './nav'
+import { NAV_ENTRIES, WHATSAPP_TABS, tabActive, tabsFor } from './nav'
 
 describe('页面分组标签', () => {
   it('客户组 5 个标签，报价标签包含产品库', () => {
@@ -15,5 +15,14 @@ describe('页面分组标签', () => {
     expect(tabsFor('schedules').map((t) => t.to)).toEqual(['/workflows', '/schedules'])
     expect(tabsFor('workbench')).toEqual([])
     expect(tabsFor('skills')).toEqual([])
+  })
+  it('WhatsApp 入口没有顶部标签；页内只有会话 / 渠道两个分段，会话只精确匹配 /whatsapp', () => {
+    expect(NAV_ENTRIES.map((e) => e.id)).toEqual(['agent', 'workbench', 'customers', 'mailbox', 'whatsapp', 'workflows', 'skills'])
+    expect(tabsFor('whatsapp')).toEqual([])
+    expect(WHATSAPP_TABS.map((t) => t.to)).toEqual(['/whatsapp', '/whatsapp/channels'])
+    const [chats, channels] = WHATSAPP_TABS
+    expect(tabActive(chats!, '/whatsapp')).toBe(true)
+    expect(tabActive(chats!, '/whatsapp/channels')).toBe(false)
+    expect(tabActive(channels!, '/whatsapp/channels')).toBe(true)
   })
 })

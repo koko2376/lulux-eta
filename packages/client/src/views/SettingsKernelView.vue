@@ -56,6 +56,101 @@ async function saveRegistry(): Promise<void> {
 const busy = (k: api.Kernel) => k.status === 'installing' || k.status === 'uninstalling'
 const anyBusy = computed(() => kernels.value.some(busy))
 
+/* ── 运行限制：kernelIdleTimeoutSeconds / kernelMaxRunMinutes ──
+ * 服务端 settings-schema.ts 是唯一事实源（默认 600 秒 / 60 分钟，范围 0–86400 / 0–1440，0 = 不限制）：
+ * 这里读 /api/settings/schema 拿到范围与默认值；拿不到（旧服务端）时退回同一组常量。 */
+const IDLE_KEY = 'kernelIdleTimeoutSeconds'
+const MAXRUN_KEY = 'kernelMaxRunMinutes'
+const IDLE_DEFAULT = '600'
+const MAXRUN_DEFAULT = '60'
+const IDLE_MIN = 0
+const IDLE_MAX = 86400
+const MAXRUN_MIN = 0
+const MAXRUN_MAX = 1440
+
+const idleDraft = ref('')
+const maxRunDraft = ref('')
+const limitsSaving = ref(false)
+const limitsError = ref('')
+const savedIdle = ref(IDLE_DEFAULT)
+const savedMaxRun = ref(MAXRUN_DEFAULT)
+const idleDefault = ref(IDLE_DEFAULT)
+const maxRunDefault = ref(MAXRUN_DEFAULT)
+const idleRange = ref({ min: IDLE_MIN, max: IDLE_MAX })
+const maxRunRange = ref({ min: MAXRUN_MIN, max: MAXRUN_MAX })
+
+const idleIsUnlimited = computed(() => idleDraft.value.trim() === '0')
+const maxRunIsUnlimited = computed(() => maxRunDraft.value.trim() === '0')
+const limitsDirty = computed(
+  () => idleDraft.value.trim() !== savedIdle.value || maxRunDraft.value.trim() !== savedMaxRun.value,
+)
+
+/** 读服务端 schema 的范围 / 默认值（只取本区块要用的两个键） */
+async function loadLimitSchema(): Promise<void> {
+  try {
+    const schema = await api.getSettingsSchema()
+    const idle = schema.find((item) => item.key === IDLE_KEY)
+    const maxRun = schema.find((item) => item.key === MAXRUN_KEY)
+    if (idle) {
+      idleDefault.value = String(idle.default ?? IDLE_DEFAULT)
+      idleRange.value = { min: idle.min ?? IDLE_MIN, max: idle.max ?? IDLE_MAX }
+    }
+    if (maxRun) {
+      maxRunDefault.value = String(maxRun.default ?? MAXRUN_DEFAULT)
+      maxRunRange.value = { min: maxRun.min ?? MAXRUN_MIN, max: maxRun.max ?? MAXRUN_MAX }
+    }
+  } catch {
+    /* 旧服务端没有 schema 接口：用同一组默认常量 */
+  }
+}
+
+/** 设置里的当前值 → 输入框（服务端没存过就是默认值） */
+function syncLimits(): void {
+  savedIdle.value = store.settings[IDLE_KEY] ?? idleDefault.value ?? IDLE_DEFAULT
+  savedMaxRun.value = store.settings[MAXRUN_KEY] ?? maxRunDefault.value ?? MAXRUN_DEFAULT
+  idleDraft.value = savedIdle.value
+  maxRunDraft.value = savedMaxRun.value
+}
+watch([() => store.settings[IDLE_KEY], () => store.settings[MAXRUN_KEY]], syncLimits, { immediate: true })
+
+/** 前端校验：必须是整数且在范围内（服务端 PATCH 也会以 400 INVALID_SETTING 拒绝） */
+function checkLimit(value: string, range: { min: number; max: number }): string {
+  const raw = value.trim()
+  if (!/^-?\d+$/.test(raw)) return t('settingsKernel.limitsInteger')
+  const n = Number(raw)
+  if (n < range.min || n > range.max) return t('settingsKernel.limitsRange', [range.min, range.max])
+  return ''
+}
+
+async function saveLimits(): Promise<void> {
+  limitsError.value = ''
+  const idle = checkLimit(idleDraft.value, idleRange.value)
+  const maxRun = checkLimit(maxRunDraft.value, maxRunRange.value)
+  if (idle || maxRun) {
+    limitsError.value = idle || maxRun
+    return
+  }
+  limitsSaving.value = true
+  try {
+    await store.saveSettings({ [IDLE_KEY]: idleDraft.value.trim(), [MAXRUN_KEY]: maxRunDraft.value.trim() })
+    syncLimits()
+    toast.success(t('settingsKernel.limitsSaved'))
+  } catch (error) {
+    // 服务端拒绝（400 INVALID_SETTING / 403）照原样显示，不吞
+    limitsError.value = errorText(error)
+  } finally {
+    limitsSaving.value = false
+  }
+}
+
+/** 恢复默认（只填回输入框，仍需点保存才写入，避免误改） */
+function resetLimits(): void {
+  limitsError.value = ''
+  idleDraft.value = idleDefault.value
+  maxRunDraft.value = maxRunDefault.value
+}
+
+
 async function load(silent = false): Promise<void> {
   if (!silent) loading.value = true
   try {
@@ -90,6 +185,7 @@ function schedule(): void {
 onMounted(() => {
   void load()
   void loadProviders()
+  void loadLimitSchema()
   store.refreshSettings().catch(() => undefined)
 })
 
@@ -370,6 +466,79 @@ const hasUpdate = (k: api.Kernel) => k.installed && !!k.latestVersion && !!k.ver
           </div>
         </section>
 
+        <!-- 运行限制：无输出超时 / 单次运行总时长；0 明确显示“不限制” -->
+        <section class="panel" data-testid="kernel-run-limits">
+          <div class="panel-head">
+            <div class="txt">
+              <h2 class="panel-title">{{ $t('settingsKernel.runtimeLimits') }}</h2>
+              <div class="panel-sub">{{ $t('settingsKernel.runtimeLimitsSub') }}</div>
+            </div>
+          </div>
+          <form class="limits-form" @submit.prevent="saveLimits">
+            <div class="limit-row">
+              <label class="field limit-field">
+                <span class="limit-label">{{ $t('settingsKernel.idleTimeout') }}</span>
+                <input
+                  v-model="idleDraft"
+                  class="input code limit-input"
+                  name="kernelIdleTimeoutSeconds"
+                  inputmode="numeric"
+                  :disabled="!can('settings:write')"
+                  :aria-invalid="Boolean(limitsError)"
+                  :title="can('settings:write') ? '' : denyReason('settings:write')"
+                />
+              </label>
+              <div class="limit-side">
+                <span v-if="idleIsUnlimited" class="badge-on" data-testid="idle-unlimited">{{
+                  $t('settingsKernel.limitsUnlimited')
+                }}</span>
+                <span class="limit-hint">
+                  {{ $t('settingsKernel.idleTimeoutHint') }}
+                  · {{ $t('settingsKernel.limitsRange', [IDLE_MIN, IDLE_MAX]) }}
+                  · {{ $t('settingsKernel.limitsDefault', [idleDefault]) }}
+                </span>
+              </div>
+            </div>
+            <div class="limit-row">
+              <label class="field limit-field">
+                <span class="limit-label">{{ $t('settingsKernel.maxRun') }}</span>
+                <input
+                  v-model="maxRunDraft"
+                  class="input code limit-input"
+                  name="kernelMaxRunMinutes"
+                  inputmode="numeric"
+                  :disabled="!can('settings:write')"
+                  :aria-invalid="Boolean(limitsError)"
+                  :title="can('settings:write') ? '' : denyReason('settings:write')"
+                />
+              </label>
+              <div class="limit-side">
+                <span v-if="maxRunIsUnlimited" class="badge-on" data-testid="maxrun-unlimited">{{
+                  $t('settingsKernel.limitsUnlimited')
+                }}</span>
+                <span class="limit-hint">
+                  {{ $t('settingsKernel.maxRunHint') }}
+                  · {{ $t('settingsKernel.limitsRange', [MAXRUN_MIN, MAXRUN_MAX]) }}
+                  · {{ $t('settingsKernel.limitsDefault', [maxRunDefault]) }}
+                </span>
+              </div>
+            </div>
+            <p v-if="limitsError" class="field-error" role="alert" data-testid="limits-error">{{ limitsError }}</p>
+            <div class="hstack limits-actions">
+              <button
+                type="submit"
+                class="kbtn primary"
+                :disabled="limitsSaving || !limitsDirty || !can('settings:write')"
+              >
+                {{ limitsSaving ? $t('settingsKernel.limitsSaving') : $t('settingsKernel.limitsSave') }}
+              </button>
+              <button type="button" class="kbtn" :disabled="!can('settings:write')" @click="resetLimits">
+                {{ $t('settingsKernel.limitsReset') }}
+              </button>
+            </div>
+          </form>
+        </section>
+
         <section class="panel" data-testid="kernel-registry">
           <div class="panel-head">
             <div class="txt">
@@ -566,6 +735,52 @@ const hasUpdate = (k: api.Kernel) => k.installed && !!k.latestVersion && !!k.ver
   gap: 10px;
   align-items: center;
   padding: 14px 20px 16px;
+}
+/* 运行限制：左边输入框，右边“不限制”标记 + 说明 */
+.limits-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 20px 16px;
+}
+.limit-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.limit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.limit-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.limit-input {
+  height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.limit-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.limit-hint {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.limits-actions {
+  padding-top: 2px;
+}
+@media (max-width: 900px) {
+  .limit-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .registry-field {
   flex: 1;

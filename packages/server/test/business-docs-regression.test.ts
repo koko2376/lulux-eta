@@ -40,7 +40,6 @@ async function pdfTexts(path: string): Promise<{ status: number; texts: string[]
 function loadTradeDocs(): { amountInWords: (a: number, c: string) => string } {
   const src = readFileSync(join(here, '../skills/trade-documents/scripts/trade_docs.cjs'), 'utf8')
   const body = src.replace(/^#!.*\n/, '').replace(/main\(\)\.catch[^\n]*\n?$/, '')
-  // eslint-disable-next-line no-new-func
   return new Function('require', 'process', `${body}\nreturn { amountInWords }`)(req, process) as { amountInWords: (a: number, c: string) => string }
 }
 
@@ -157,7 +156,6 @@ describe('trade-documents 技能脚本：金额大写与合计', () => {
   it('合计 = 各行两位舍入后的金额相加；单价最多 4 位；默认日期用本机日期', () => {
     const src = readFileSync(join(here, '../skills/trade-documents/scripts/trade_docs.cjs'), 'utf8')
     const body = src.replace(/^#!.*\n/, '').replace(/main\(\)\.catch[^\n]*\n?$/, '')
-    // eslint-disable-next-line no-new-func
     const fns = new Function('require', 'process', `${body}\nreturn { lineAmount, unitPriceText, round2 }`)(req, process) as {
       lineAmount: (it: { qty: number; unitPrice: number }) => number
       unitPriceText: (v: number) => string

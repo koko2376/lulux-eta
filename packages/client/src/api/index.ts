@@ -32,6 +32,7 @@ export * from './team'
 export * from './crm'
 export * from './memory'
 export * from './prospects'
+export * from './whatsapp'
 
 /* ───────────────────────── 类型（docs/API-CONTRACT.md） ───────────────────────── */
 
@@ -295,9 +296,13 @@ export interface McpServerInput {
 
 export interface SettingSchema {
   key: string
-  type: 'string' | 'boolean' | 'number' | 'enum'
+  type: 'string' | 'boolean' | 'number' | 'integer' | 'enum'
   default: unknown
   enum?: string[]
+  /** 整数型设置的合法范围（服务端 settings-schema.ts 的 min / max；0 = 不限制的语义由该设置自己声明） */
+  min?: number
+  max?: number
+  description?: string
 }
 
 export type KernelStatus = 'idle' | 'installing' | 'uninstalling' | 'error'
@@ -886,13 +891,47 @@ export function listCustomers(params: {
   country?: string
   ownerId?: string
   visibility?: string
+  sort?: CustomerSort
+  order?: 'asc' | 'desc'
+  /** 键集游标（上一页返回的 nextCursor）；与 page 二选一 */
+  cursor?: string
   page?: number
   pageSize?: number
-}): Promise<Paged<Customer & CustomerFollowUp>> {
-  return request<Paged<Customer & CustomerFollowUp>>('/api/customers', { query: params }).then((res) => ({
-    items: res?.items ?? [],
-    total: res?.total ?? 0,
-  }))
+}): Promise<Paged<Customer & CustomerFollowUp> & { nextCursor: string | null }> {
+  return request<Paged<Customer & CustomerFollowUp> & { nextCursor?: string | null }>('/api/customers', { query: params }).then(
+    (res) => ({
+      items: res?.items ?? [],
+      total: res?.total ?? 0,
+      nextCursor: res?.nextCursor ?? null,
+    }),
+  )
+}
+
+export type CustomerSort = 'updatedAt' | 'createdAt' | 'company'
+export type CustomerBatchAction = 'stage' | 'assign' | 'addTag' | 'removeTag' | 'delete'
+export interface CustomerBatchRequest {
+  action: CustomerBatchAction
+  /** page = 本页勾选的 ids；all = 与 filters 匹配的全部客户（上限 2000） */
+  scope?: 'page' | 'all'
+  ids?: string[]
+  filters?: { query?: string; stage?: string; tag?: string; country?: string; ownerId?: string; visibility?: string }
+  params?: { stage?: string; ownerId?: string; visibility?: string; teamId?: string | null; tag?: string }
+}
+export interface CustomerBatchResult {
+  action: CustomerBatchAction
+  scope: 'page' | 'all'
+  total: number
+  succeeded: number
+  failed: Array<{ id: string; code: string; message: string }>
+}
+
+/** 服务端批量事务：单项失败不影响其他，逐项返回失败原因 */
+export function batchCustomers(body: CustomerBatchRequest): Promise<CustomerBatchResult> {
+  // 空字符串筛选（未选阶段 / 标签）不传：服务端按“没有这个条件”处理，与列表查询一致
+  const filters = body.filters
+    ? Object.fromEntries(Object.entries(body.filters).filter(([, v]) => typeof v === 'string' && v.trim() !== ''))
+    : undefined
+  return request('/api/customers/batch', { method: 'POST', body: { ...body, ...(filters ? { filters } : {}) }, silent: true })
 }
 
 /** 服务端 pageSize 上限 200：分页取全部（报价单的客户下拉等） */
@@ -1102,7 +1141,20 @@ export function exportData(): Promise<Record<string, unknown>> {
   return request('/api/data/export')
 }
 
-export function importData(payload: unknown): Promise<{ imported: Record<string, number> }> {
+/**
+ * 导入备份（契约 §6.9）。服务端返回的不只是表计数：`backup` 是导入前的自动快照，
+ * `appliedSettings` / `skippedSettings` 是逐项校验后真正写进去 / 被跳过的设置键名
+ * （安全相关设置一律不导入，未知键与非法值也跳过；服务端只给键名，不给原因）。
+ */
+export interface DataImportResult {
+  imported: Record<string, number>
+  /** 导入前 VACUUM INTO 出来的快照文件（服务器上的绝对路径） */
+  backup: string
+  appliedSettings: string[]
+  skippedSettings: string[]
+}
+
+export function importData(payload: unknown): Promise<DataImportResult> {
   return request('/api/data/import', { method: 'POST', body: payload })
 }
 

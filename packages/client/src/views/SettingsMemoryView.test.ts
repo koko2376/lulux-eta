@@ -85,7 +85,7 @@ describe('设置 → 记忆', () => {
     const profile = wrapper.get('[data-testid="memory-section-profile"]')
     expect(profile.text()).toContain('用户画像')
     expect(profile.text()).toContain('主营阀门出口到中东')
-    expect(profile.text()).toContain('Agent 保存')
+    expect(profile.text()).toContain('LULUX 保存')
     expect(profile.get('[data-testid="memory-usage"]').text()).toBe('已用 9 / 2,000 字')
     const notes = wrapper.get('[data-testid="memory-section-notes"]')
     expect(notes.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('95')
@@ -188,7 +188,7 @@ describe('设置 → 记忆', () => {
       const wrapper = await mountView()
       expect(wrapper.text()).toContain('Profile')
       expect(wrapper.text()).toContain('9 / 2,000 characters used')
-      expect(wrapper.text()).toContain('Saved by agent')
+      expect(wrapper.text()).toContain('Saved by LULUX')
       expect(wrapper.text()).toContain('Use my memory in group chats')
     } finally {
       setLanguage('zh-CN')

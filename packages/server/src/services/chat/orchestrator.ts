@@ -87,7 +87,6 @@ import {
   newLoopState,
   runPersonaLoop,
   type ChatSink,
-  type LoopState,
 } from "./persona-loop.js";
 import {
   INTERRUPTED_FINISH_REASON,

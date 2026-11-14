@@ -1,5 +1,5 @@
 import { AppError } from '../../errors.js'
-import type { Provider, ProviderKind } from '../../types.js'
+import type { Provider } from '../../types.js'
 import { findKernel } from '../kernels/catalog.js'
 import { kernelMode } from '../kernels/scoped.js'
 import { capabilitiesFor, type CapabilityContext } from '../llm/capabilities.js'

@@ -42,6 +42,7 @@ import { sequenceRoutes } from './routes/sequences.js'
 import { skillRoutes } from './routes/skills.js'
 import { workflowRoutes } from './routes/workflows.js'
 import { memoryRoutes } from './routes/memory.js'
+import { whatsappRoutes } from './routes/whatsapp.js'
 import { config, runtimeInfo, type RunMode } from './config.js'
 import { recoverInterruptedMessages } from './services/chat/run-registry.js'
 import { draftService } from './services/email/draft-service.js'
@@ -230,6 +231,7 @@ export function createApp(options: AppOptions): Koa {
   sequenceRoutes(router)
   skillRoutes(router)
   workflowRoutes(router)
+  whatsappRoutes(router)
 
   app.use(router.routes())
   app.use(router.allowedMethods())

@@ -37,6 +37,17 @@ it('导入文件里的安全相关设置被跳过，普通设置照常导入', a
   expect(after.theme).toBe('dark')
 })
 
+it('未知键与非法值不写入，但逐项列在 skippedSettings 里', async () => {
+  const res = await server.request('POST', '/api/data/import', {
+    body: { settings: { autoTitle: '1', notARealSetting: 'x', maxToolRounds: 'not-a-number' } },
+  })
+  expect(res.status, res.text).toBe(200)
+  expect(res.json.appliedSettings).toEqual(['autoTitle'])
+  expect([...res.json.skippedSettings].sort()).toEqual(['maxToolRounds', 'notARealSetting'])
+  const after = (await server.request('GET', '/api/settings')).json.settings
+  expect(after.notARealSetting).toBeUndefined()
+})
+
 it('导出同样不含这些设置', async () => {
   const patch = await server.request('PATCH', '/api/settings', { body: { kernelRegistry: 'https://registry.npmjs.org', computerUse: true } })
   expect(patch.status, patch.text).toBe(200)

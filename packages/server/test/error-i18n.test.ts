@@ -306,9 +306,10 @@ describe("server error message catalog", () => {
 
 describe("error middleware translates by request language", () => {
   let server: TestServer;
+  // 全量并行时冷加载整个应用可能超过默认 30 秒
   beforeAll(async () => {
     server = await startTestServer();
-  });
+  }, 60_000);
   afterAll(async () => {
     await server?.close();
   });

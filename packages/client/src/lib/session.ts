@@ -182,6 +182,27 @@ function notifyAccountReset(): void {
 }
 /** 上一次登录进来的账号（服务器 + 用户 id）：换了账号时也要清 */
 let lastAccountKey: string | null = null
+
+type SignOutListener = () => void
+const signOutListeners = new Set<SignOutListener>()
+/**
+ * 用户主动点“退出登录”时回调（会话过期、换服务器、换账号都不算）：
+ * 共享电脑上退出登录时，要给这个账号清掉本机留下的东西（例如输入框草稿）。
+ */
+export function onSignOut(listener: SignOutListener): () => void {
+  signOutListeners.add(listener)
+  return () => signOutListeners.delete(listener)
+}
+function notifySignOut(): void {
+  for (const listener of signOutListeners) {
+    try {
+      listener()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+}
+
 function trackAccount(): void {
   if (!auth.me) return
   const key = `${auth.connection}|${auth.serverUrl}|${auth.me.user.id}`
@@ -412,6 +433,7 @@ export async function clearSession(): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  notifySignOut()
   notifyAccountReset()
   if (auth.mode === 'desktop' && auth.connection === 'local') {
     await api.localLogout().catch(() => undefined)

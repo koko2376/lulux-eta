@@ -5,7 +5,7 @@ import { AppError, messageOf, notFound } from '../../errors.js'
 import { assertCanModify, requirePermission, seesAll } from '../../security/access.js'
 import { newId } from '../../utils/id.js'
 import { transaction } from '../../utils/tx.js'
-import { parse } from '../../validation.js'
+import { parse, patchShape } from '../../validation.js'
 import { actorForUserId } from '../auth-service.js'
 import { customerService } from '../customer-service.js'
 import { eventBus } from '../events.js'
@@ -175,12 +175,12 @@ const sequenceShape = {
 }
 
 const createInput = z.object(sequenceShape).strict()
+// patchShape：去掉 default，PATCH 只改一项时其它设置保持原值
 const patchInput = z
   .object({
-    ...sequenceShape,
-    status: z.enum(['active', 'paused']),
+    ...patchShape(sequenceShape),
+    status: z.enum(['active', 'paused']).optional(),
   })
-  .partial()
   .strict()
 
 const contactInput = z

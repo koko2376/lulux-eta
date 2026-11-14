@@ -341,7 +341,8 @@ export const dataService = {
           imported.settings! += 1
           appliedSettings.push(key)
         } catch {
-          // 跳过未知或不合法的设置
+          // 未知或不合法的设置：不写入，但要报给界面（契约 §6.9：跳过的键名逐项返回）
+          skippedSettings.push(key)
         }
       }
 

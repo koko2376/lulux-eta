@@ -21,6 +21,8 @@ const blankContact = (primary = false): ContactDraft => ({
 })
 
 const c = props.customer
+/** 带 id 才是编辑；不带 id 的是“预填后新建”（例如从 WhatsApp 会话新建客户） */
+const editingId = c?.id ?? ''
 const form = reactive({
   company: c?.company ?? '',
   country: c?.country ?? '',
@@ -29,7 +31,7 @@ const form = reactive({
   tagsText: (c?.tags ?? []).join(', '),
   source: c?.source ?? '',
   notes: c?.notes ?? '',
-  contacts: c?.contacts?.length ? c.contacts.map((x) => ({ ...x })) : [blankContact(true)],
+  contacts: c?.contacts?.length ? c.contacts.map((x) => ({ ...blankContact(), ...x })) : [blankContact(true)],
 })
 const saving = ref(false)
 const error = ref('')
@@ -88,8 +90,8 @@ async function save(force = false): Promise<void> {
   }
   saving.value = true
   try {
-    const saved = props.customer
-      ? await api.updateCustomer(props.customer.id, input)
+    const saved = editingId
+      ? await api.updateCustomer(editingId, input)
       : await api.createCustomer(input, { force })
     emit('saved', saved)
   } catch (value) {
@@ -104,7 +106,7 @@ async function save(force = false): Promise<void> {
 
 <template>
   <UiModal
-    :title="customer ? $t('customerFormModal.kx7a9rd') : $t('customerFormModal.kr9abat')"
+    :title="editingId ? $t('customerFormModal.kx7a9rd') : $t('customerFormModal.kr9abat')"
     :width="680"
     @close="emit('close')"
   >

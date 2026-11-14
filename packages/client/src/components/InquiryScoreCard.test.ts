@@ -36,6 +36,7 @@ function message(inquiry: api.InquiryScore): api.EmailMessage {
     references: [],
     text: '',
     hasHtml: false,
+    remoteImages: { hasRemote: false, allowed: false },
     truncated: false,
     attachments: [],
     inquiry,

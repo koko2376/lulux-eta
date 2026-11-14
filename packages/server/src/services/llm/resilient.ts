@@ -62,7 +62,7 @@ export function abortableSleep(
  * 那只是这一个工具的问题，见 toolSchemaCulprit。
  */
 const TOOLS_UNSUPPORTED =
-  /(does not|doesn't|do not|don't|cannot|can't) (support|use|accept) (any )?(tools|tool[ _-]?(use|calling|calls)|function[ _-]?(calling|calls)|functions)\b|\b(tools|tool[ _-]?(use|calling|calls)|tool_choice|function[ _-]?(calling|calls)|functions) (is |are )?(not supported|unsupported|not available|not enabled|disabled)|\b(unrecognized|unknown|unsupported|extra|unexpected) (request )?(argument|parameter|field|key|property)s?( supplied)?[: '"`]{0,4}(tools|tool_choice|functions)\b(?![.\[])/i;
+  /(does not|doesn't|do not|don't|cannot|can't) (support|use|accept) (any )?(tools|tool[ _-]?(use|calling|calls)|function[ _-]?(calling|calls)|functions)\b|\b(tools|tool[ _-]?(use|calling|calls)|tool_choice|function[ _-]?(calling|calls)|functions) (is |are )?(not supported|unsupported|not available|not enabled|disabled)|\b(unrecognized|unknown|unsupported|extra|unexpected) (request )?(argument|parameter|field|key|property)s?( supplied)?[: '"`]{0,4}(tools|tool_choice|functions)\b(?![.[])/i;
 /** 工具定义本身的校验错误（schema / 参数格式）：不学习降级 */
 const TOOL_SCHEMA_ERROR =
   /input_schema|json[ _-]?schema|\bschema\b|\btools?[.[]\s*\d|\bparameters\b.{0,40}\binvalid\b|\binvalid\b.{0,40}\bparameters\b/i;

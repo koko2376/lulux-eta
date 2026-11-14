@@ -8,6 +8,39 @@ Each released version carries its own BSL Change Date (see `LICENSE`).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-14
+
+WhatsApp arrives as a channel: link one personal account as a linked device, chat with customers in three panes with translation, and let LULUX draft replies that you review before sending. Plus a round of fixes across the mailbox, customers, drafts and settings, and a refreshed mailbox look. 新增 WhatsApp 渠道：以关联设备方式接入一个个人号，三栏会话、收发翻译，LULUX 起草回复、由你确认后发出；同时修复邮箱、客户、草稿与设置中的一批问题，并更新邮箱界面。
+
+### Added
+
+- **WhatsApp (unofficial engine, opt-in)**: link one personal WhatsApp account per server as a linked device, by QR code or phone pairing code. Before linking you must read and accept the account-ban risk (kept for 30 days); the protocol engine is not bundled and is installed at runtime (see `docs/WHATSAPP-ENGINE.md`). On a team server the first member who links owns the account; other members get `WHATSAPP_ACCOUNT_BUSY`. WhatsApp（非官方引擎，需手动启用）：每台服务以“关联设备”方式接入一个个人号，扫码或手机号配对码；关联前必须阅读并确认封号风险（保留 30 天）；协议引擎不打进安装包，运行时安装（见 `docs/WHATSAPP-ENGINE.md`）；团队服务器上由第一个关联的成员占用，其他成员收到 `WHATSAPP_ACCOUNT_BUSY`。
+- **WhatsApp chats**: three panes — conversation list with search (name, number, linked company), filters (all / unread / awaiting reply / archived), tags, pin and archive; message stream with retry for failed sends and optional in-bubble translation of incoming messages; a customer profile on the right showing existing customer fields, with manual linking to a customer or creating one; personal quick replies. WhatsApp 会话：三栏布局——会话列表支持搜索（名称 / 号码 / 关联公司）、全部 / 未读 / 待回复 / 已归档筛选、标签、置顶与归档；消息区失败可重试，收到的消息可在气泡内显示译文；右侧客户档案显示已有客户字段，可手动关联或新建客户；个人快捷回复。
+- **Input translation**: type in your own language in the small box, the translation fills the main message box, and what is sent is exactly the main box. The translator is a runtime-installed engine (see `docs/WHATSAPP-TRANSLATOR.md`). 输入翻译：在小框里用母语输入，译文填入主输入框，发出的就是主输入框里的内容；翻译引擎运行时安装（见 `docs/WHATSAPP-TRANSLATOR.md`）。
+- **LULUX on WhatsApp**: agent tools `whatsapp_conversations`, `whatsapp_read_messages`, `whatsapp_draft_reply` (saves a draft only; it appears as a draft card with “Use and edit” / “Discard”) and `whatsapp_send_message` (requires approval every time). LULUX 接入 WhatsApp：查会话、读消息、起草回复（只存草稿，会话里显示草稿卡，可“使用并编辑”或“丢弃”）、发送消息（每次都需审批）。
+- **Egress proxy for WhatsApp**: one SOCKS5 / HTTP / HTTPS proxy for the linked account, set by the linking member or an owner / admin; “Test connection” shows the egress IP. The password is encrypted and never sent back to the browser. WhatsApp 出口代理：为关联账号设置一个代理，由绑定人或老板 / 管理员设置；“测试连接”显示出口 IP；密码加密保存、不回传浏览器。
+- **Customers list, high density**: 50 px rows, primary contact / local time / tags columns, optional columns that collapse on narrow windows, server-side sorting, 20 / 50 / 100 per page, and batch actions in one server transaction (select across pages, change stage, add / remove tags, assign, delete), also as agent tools. 客户列表高密度：统一 50px 行高、主联系人 / 当地时间 / 标签列、可选列且窄窗口自动收起、服务端排序、每页 20 / 50 / 100、批量操作走服务端事务（跨页全选、改阶段、加 / 去标签、分配、删除），Agent 也可批量操作。
+
+### Changed
+
+- **Interface**: a seventh sidebar entry, WhatsApp, with an unread badge and a connection dot; mailbox look refreshed — selected message and folder in accent colour with white text, accent unread dots, previous / next in the reading pane, folder icons; page-header buttons wrap as a group on narrow windows. 界面：侧栏新增第七个入口 WhatsApp（未读角标与连接状态点）；邮箱界面更新——选中的邮件与文件夹主题色底白字、未读点主题色、阅读区上一封 / 下一封、文件夹图标；窄窗口页头按钮整组换行。
+- Interface text that refers to the built-in assistant now says “LULUX” instead of “Agent”; the Leads page button reads “Let LULUX find customers”. 指内置助手的界面文案统一为 LULUX；线索页按钮改为“让 LULUX 找客户”。
+- Web search: the official Bing API has been retired, so the Bing-compatible option now requires a gateway URL. 联网搜索：Bing 官方接口已停服，Bing 兼容选项必须填写网关地址。
+- Database migrations 37–40 (remote-image consent, WhatsApp conversations and messages, customer query indexes, quick replies) run automatically on start-up. 启动时自动执行数据库迁移 37–40（远程图片同意、WhatsApp 会话与消息、客户查询索引、快捷回复）。
+
+### Fixed
+
+- Mailbox: images not showing — inline (CID) images are resolved and validated, remote images load through the server only after you allow them for that message, and the choice is remembered; messages with an HTML body open in rich view by default; folder counts and the sidebar badge refresh right after a re-review. 邮箱：图片不显示——内联图解析与校验、远程图片按封同意后经服务端代理加载并记住选择；有 HTML 正文默认图文视图；复核后文件夹计数与侧栏角标立即刷新。
+- The built-in browser is released as soon as a run ends instead of staying occupied for 90 seconds. 运行结束立即释放内置浏览器，不再占用 90 秒。
+- Message-box drafts are saved to disk (including the last keystrokes before closing the window) and kept per server and account; recent customers and read state are no longer shared between accounts. 输入框草稿落盘（含关窗前最后几个字），并按服务器与账号隔离；最近客户与已读状态不再跨账号串用。
+- Backup import lists applied and skipped settings, including unknown keys and invalid values; table names are localized and only non-zero tables are shown. 备份导入列出已应用 / 已跳过的设置（含未知键与非法值），表名本地化、只列非零表。
+- CLI kernel time-outs (idle and total run time) can be set in Settings. 命令行内核的无输出超时与单次运行时长可在设置中调整。
+- @mentions use the same word boundaries in the client and on the server. @ 提及在客户端与服务端按同一边界识别。
+- Outreach sequences: saving a single setting no longer resets the others to their defaults. 开发信序列：只改一项设置不再把其他设置写回默认值。
+- Customer search kept stale results after a contact moved to another customer. 联系人换到其他客户后，客户搜索结果不再残留旧关联。
+- Creating a customer prefilled from another page no longer tries to update a non-existent record. 从其他页面预填新建客户时，不再误走“更新客户”。
+- Server error messages all have English translations. 服务端错误信息全部补齐英文。
+
 ## [0.1.2] - 2026-10-25
 
 From chat assistant to a foreign-trade agent that finds buyers, prices, follows up and prepares shipping documents. Every new capability is an agent tool too (built-in kernel, LULUX MCP for CLI kernels, and workflow agent nodes). 从对话助手升级为能找客户、算报价、跟进、出单证的外贸 Agent；每项新能力都是 Agent 工具（内置内核、命令行内核经 LULUX MCP、工作流 Agent 节点均可调用）。
@@ -96,4 +129,6 @@ First public, source-available release. 首个公开（源码可用）版本。
 
 - Official MariaDB Business Source License 1.1 text. Production use is free for individuals and organizations (including internal modification); paid distribution, sublicensing and paid hosted services are excluded. Change Date 2030-10-20, Change License Apache-2.0.
 
+[0.1.4]: https://github.com/koko2376/lulux-eta/releases/tag/v0.1.4
+[0.1.2]: https://github.com/koko2376/lulux-eta/releases/tag/v0.1.2
 [0.1.1]: https://github.com/koko2376/lulux-eta/releases/tag/v0.1.1

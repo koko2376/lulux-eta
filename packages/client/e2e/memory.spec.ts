@@ -95,7 +95,7 @@ test('设置 → 记忆：看到这条，用量正确；截图', async ({ page }
   const profile = page.getByTestId('memory-section-profile')
   await expect(profile.getByTestId('memory-entry')).toHaveCount(1)
   await expect(profile.getByTestId('memory-entry')).toContainText(FACT)
-  await expect(profile.getByTestId('memory-entry')).toContainText('Agent 保存')
+  await expect(profile.getByTestId('memory-entry')).toContainText('LULUX 保存')
   await expect(profile.getByTestId('memory-usage')).toHaveText(`已用 ${FACT.length} / 2,000 字`)
 
   // 再手动加一条记忆，截图更接近真实使用

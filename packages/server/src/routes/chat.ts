@@ -520,11 +520,15 @@ export function chatRoutes(router: Router): void {
     }
     const current = searchConfigService.get();
     if (
-      body.provider === "searxng" &&
+      (body.provider === "searxng" || body.provider === "bing") &&
       !body.endpoint &&
-      (current.provider !== "searxng" || !current.endpoint)
+      (current.provider !== body.provider || !current.endpoint)
     ) {
-      throw new AppError(400, "VALIDATION_ERROR", "SearXNG 需要填写服务地址");
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        body.provider === "searxng" ? "SearXNG 需要填写服务地址" : "Bing 官方接口已停止服务，请填写兼容该接口的网关地址",
+      );
     }
     ctx.body = searchConfigService.update(body);
   });

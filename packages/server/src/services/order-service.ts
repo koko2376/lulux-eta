@@ -313,13 +313,25 @@ export const orderService = {
     const where = [scope.sql, 'o.org_id = ?', 'o.deleted_at IS NULL']
     const params: Array<string | number> = [...scope.params, actor.orgId]
     if (query.status === 'open') where.push("o.status NOT IN ('completed','cancelled')")
-    else if (query.status !== 'all') where.push('o.status = ?'), params.push(query.status)
-    if (query.customerId) where.push('o.customer_id = ?'), params.push(query.customerId)
+    else if (query.status !== 'all') {
+      where.push('o.status = ?')
+      params.push(query.status)
+    }
+    if (query.customerId) {
+      where.push('o.customer_id = ?')
+      params.push(query.customerId)
+    }
     const mine = query.mine === true || query.mine === '1' || query.mine === 'true'
-    if (mine) where.push('o.owner_id = ?'), params.push(actor.id)
+    if (mine) {
+      where.push('o.owner_id = ?')
+      params.push(actor.id)
+    }
     if (query.receivable) {
       where.push("o.status <> 'cancelled' AND o.amount - (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.order_id = o.id) > 0.004")
-      if (query.receivable === 'overdue') where.push("o.due_date <> '' AND o.due_date < ?"), params.push(todayString())
+      if (query.receivable === 'overdue') {
+        where.push("o.due_date <> '' AND o.due_date < ?")
+        params.push(todayString())
+      }
     }
     const clause = `WHERE ${where.join(' AND ')}`
     const total = Number(

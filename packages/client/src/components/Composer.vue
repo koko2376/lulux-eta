@@ -42,7 +42,7 @@ import {
 } from '../lib/composer-context'
 import { can } from '../lib/session'
 import { kernelReasonText, unavailableAction } from '../lib/kernel'
-import { activeMention, filterMembers, insertMention, type MentionQuery } from '../lib/mention'
+import { filterMembers, insertMention, mentionPopup, type MentionQuery } from '../lib/mention'
 import { useAppStore } from '../stores/app'
 import { errorText, toast } from '../stores/ui'
 import AgentAvatar from './AgentAvatar.vue'
@@ -268,8 +268,33 @@ function showDraft(next: SessionDraft): void {
 }
 
 function loadDraft(sessionId: string | null): void {
-  showDraft(store.takeDraft(sessionId))
+  // 刷新 / 重进页面时“正在写”的那一份优先（比草稿表里存的更新），没有再取草稿表
+  const live = store.liveDraftFor(sessionId)
+  const taken = store.takeDraft(sessionId)
+  const next = live && !isEmptyDraft(live) ? live : taken
+  showDraft(next)
+  if (!isEmptyDraft(next)) store.rememberLiveDraft(sessionId, next)
 }
+
+/** 输入框内容一变就（防抖）记进“正在写”的草稿：刷新、关窗、切账号后都不丢 */
+let liveTimer: number | null = null
+function scheduleLiveSave(): void {
+  if (liveTimer !== null) window.clearTimeout(liveTimer)
+  liveTimer = window.setTimeout(() => {
+    liveTimer = null
+    if (draftEpoch !== store.accountEpoch) return
+    store.rememberLiveDraft(draftSession, localDraft())
+  }, 400)
+}
+watch([draft, attachments, refs], scheduleLiveSave, { deep: true })
+/** 刷新 / 关窗时防抖还没到点：立刻落盘，最后几个字也不丢 */
+function flushLiveSave(): void {
+  if (liveTimer === null) return
+  window.clearTimeout(liveTimer)
+  liveTimer = null
+  if (draftEpoch === store.accountEpoch) store.rememberLiveDraft(draftSession, localDraft())
+}
+window.addEventListener('pagehide', flushLiveSave)
 
 loadDraft(draftSession)
 
@@ -637,7 +662,10 @@ const visionNotice = computed(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', flushLiveSave)
   // 离开 Agent 页：草稿存起来，回来还在；账号已切换则丢掉
+  if (liveTimer !== null) window.clearTimeout(liveTimer)
+  liveTimer = null
   if (draftEpoch === store.accountEpoch) store.stashDraft(draftSession, localDraft())
   else revokeAll(attachments.value)
   if (luluTypingTimer) clearTimeout(luluTypingTimer)
@@ -716,6 +744,8 @@ async function submit(): Promise<void> {
   draft.value = ''
   attachments.value = []
   refs.value = []
+  // 发送成功就不再是“没写完的草稿”：落盘的那一份跟着清掉（发送失败会由退回草稿重新写回）
+  store.clearLiveDraft()
   await nextTick()
   resize()
   await store.send(message, { ...(images.length ? { attachments: images } : {}), draft: original })
@@ -725,6 +755,16 @@ async function submit(): Promise<void> {
 /* ── @成员（群聊，契约 §6.8-6） ── */
 const mention = ref<MentionQuery | null>(null)
 const mentionIndex = ref(0)
+/** 能不能匹配到某个成员：成员名、id、群头衔（与服务端认的 key 一致） */
+function mentionLabels(): string[] {
+  const labels: string[] = []
+  for (const agent of store.currentAgents) {
+    labels.push(agent.name, agent.id)
+    const tag = memberTag(store.currentSession, agent.id)
+    if (tag) labels.push(tag)
+  }
+  return labels
+}
 const mentionList = computed<Agent[]>(() => {
   if (!mention.value || !store.isGroupChat) return []
   const query = mention.value.query.trim().toLowerCase()
@@ -744,7 +784,8 @@ function updateMention(): void {
     mention.value = null
     return
   }
-  const next = activeMention(draft.value, el.selectionStart ?? draft.value.length)
+  // 边界规则与服务端一致；查询匹配不到任何成员（名字已点完 / 只是正文里的 @）就不弹
+  const next = mentionPopup(draft.value, el.selectionStart ?? draft.value.length, mentionLabels())
   if (next?.query !== mention.value?.query || next?.start !== mention.value?.start) mentionIndex.value = 0
   mention.value = next
 }
@@ -883,7 +924,8 @@ function onBlur(): void {
           <span v-if="a.image && a.status === 'uploading'" class="composer-image-busy" aria-hidden="true" />
         </button>
         <AppIcon v-else name="file" :size="14" />
-        <template v-if="!a.image || a.capture">
+        <!-- 图片附件缩略图失效时（刷新后 blob: 预览不可用）也要显示文件名，用户才知道这是哪个文件 -->
+        <template v-if="!a.image || a.capture || !a.preview">
           <span class="composer-file-name">{{ a.capture ? captureChip(a.capture) : a.name }}</span>
           <span v-if="!a.capture || a.status !== 'done'" class="composer-file-size">{{
             a.status === 'uploading'

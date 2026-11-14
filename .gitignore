@@ -58,3 +58,6 @@ desktop.ini
 
 # Server release bundle (scripts/build-server-bundle.sh)
 dist-server/
+
+# WhatsApp / 翻译运行时引擎（使用者本机安装，不提交）
+.eta-engines/

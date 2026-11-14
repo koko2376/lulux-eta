@@ -27,12 +27,6 @@ function freePort(): Promise<number> {
     })
   })
 }
-async function mockCall(path: string, body?: unknown): Promise<any> {
-  const get = path === '/__mock/requests'
-  const res = await fetch(`${mockBase}${path}`, { method: get ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: get ? undefined : JSON.stringify(body ?? {}) })
-  return res.json()
-}
-
 beforeAll(async () => {
   const port = await freePort()
   mock = spawn(process.execPath, [fileURLToPath(new URL('../../../tools/dev/mock-openai.js', import.meta.url)), String(port)], { stdio: 'pipe' })

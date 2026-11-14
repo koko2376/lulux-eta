@@ -44,7 +44,16 @@ agents / chat / chat/tool-decision / data/* / mcp/servers* / proxy/test / webhoo
 - chat 流事件中，每条 assistant 消息带 `runtime: { kind: 'provider', providerName, model } | { kind: 'kernel', kernelId, version }`，客户端在消息头显示实际运行者。
 
 ### 客户 Customers
-- `GET /api/customers?query=&stage=&tag=&page=&pageSize=` → `{ items: Customer[], total }`
+- `GET /api/customers?query=&stage=&tag=&country=&ownerId=&visibility=&sort=&order=&cursor=&page=&pageSize=` → `{ items: Customer[], total, nextCursor, sort, order, cursorPaged }`
+  - `sort` ∈ `updatedAt`（默认）| `createdAt` | `company`，`order` ∈ `desc`（默认）| `asc`；同值按行号次序稳定排序。
+  - `query` 为包含式搜索（公司、国家、官网、备注、标签及全部联系人的姓名/邮箱/电话/WhatsApp），`%`、`_` 按字面匹配。
+  - `nextCursor`：本页满 `pageSize` 时给出，传回 `cursor` 取下一页（键集分页，翻页期间新增的行不会造成重复或遗漏）；游标只在同一组筛选 + 排序下有效，否则 400 `VALIDATION_ERROR`。
+  - 不带 `cursor` 时按 `page` 偏移分页，偏移超过 50,000 行返回 400 `CURSOR_REQUIRED`。`total` 恒为筛选条件下的总数。
+- `POST /api/customers/batch` body `{ action: 'stage'|'assign'|'addTag'|'removeTag'|'delete', scope?: 'page'|'all', ids?: string[], filters?: <同列表查询参数>, params?: { stage?, ownerId?, visibility?, teamId?, tag? } }` → `{ action, scope, total, succeeded, failed: { id, code, message }[] }`
+  - `scope='page'`（默认）处理 `ids`（去重后 1~200 个）；`scope='all'` 处理与 `filters` 匹配的全部客户，超过 2,000 个返回 400 `BATCH_TOO_LARGE`。
+  - 一次请求一个事务，每个客户单独 SAVEPOINT：无权限、不存在、名下有业务记录（`CUSTOMER_HAS_RECORDS`）等只让该项失败并列入 `failed`，其余照常提交。
+  - 需要 `data:write`；`delete` 另需 `customer:delete`（进回收站）；`assign` 的 `ownerId` 必须是本组织在职成员。记审计 `customer.batch`。
+  - Agent 侧同名能力：内置工具 / LULUX MCP `batch_update_customers`（stage/assign/addTag/removeTag）与 `batch_delete_customers`，每次都需用户批准。
 - `POST /api/customers`、`GET/PATCH/DELETE /api/customers/:id`
   `Customer = { id, company, country, website, stage: 'lead'|'contacted'|'quoted'|'negotiating'|'won'|'lost', tags: string[], source, notes, contacts: Contact[], createdAt, updatedAt }`
   `Contact = { id, name, title, email, phone, whatsapp, isPrimary }`
@@ -1218,6 +1227,173 @@ interface ScheduleRun { id: string; scheduleId: string; status: RunStatus; start
 
 审计动作：`workflow.create`（含复制）/ `workflow.update` / `workflow.delete` / `workflow.import` / `workflow.run` / `workflow.cancel`，
 `schedule.create` / `schedule.update` / `schedule.delete` / `schedule.run_now` / `schedule.fire`（自动触发与补跑，记在负责人名下）。
+
+## 12. WhatsApp 关联设备
+
+WhatsApp Web「关联设备」(Linked Devices) 通道。扫码与手机号配对码是同一条关联设备会话的两种握手方式，不是官方 Cloud API。整台服务只关联一个 `default` 账号（单机个人号）：绑定/连接状态、**纯文本会话收发**、会话整理（归档 / 置顶 / 标签 / 手动关联客户）、快捷回复、**输入翻译**、出口代理，以及 LULUX 起草回复（只存草稿，发送须人工确认）；媒体、模板消息与群聊不在本版范围。
+引擎**不随包内置、不在任何 `package.json` 依赖里**：由使用者在本机运行时安装，服务端从数据目录或仓库 `.eta-engines/whatsapp` 动态加载；缺失时明确返回 `ENGINE_NOT_INSTALLED`，不静默回退。翻译引擎同样运行时加载，见 §12.7。
+
+### 12.1 数据结构
+```ts
+type WhatsAppConnection = 'connected' | 'connecting' | 'disconnected' | 'reauth'
+type WhatsAppPhase =
+  | 'unbound' | 'waiting_qr' | 'waiting_pairing' | 'connecting'
+  | 'connected' | 'reconnecting' | 'failed' | 'reauth'
+type WhatsAppLinkMode = 'qr' | 'pairing'
+
+interface WhatsAppStatus {
+  accountId: string                 // 恒为 'default'
+  phase: WhatsAppPhase              // 界面分区
+  connection: WhatsAppConnection    // 四态连接点，与侧栏状态点同一枚举
+  mode: WhatsAppLinkMode | null
+  engine: { id: string; installed: boolean; version: string | null; dir: string | null
+            qrAvailable: boolean; error: { code: string; message: string } | null }
+  account: { phone: string; deviceName: string; platform: string | null
+             linkedAt: number; lastLoginAt: number; lastActivityAt: number } | null
+  qr: { dataUrl: string; issuedAt: number; expiresAt: number; refreshCount: number
+        warning: boolean; expired: boolean } | null      // dataUrl 为 PNG / SVG data URL
+  pairing: { code: string; phone: string; issuedAt: number; expiresAt: number; expired: boolean } | null
+  reconnect: { attempt: number; maxAttempts: number; nextAt: number } | null
+  error: { code: string; message: string } | null
+  risk: { accepted: boolean; acceptedAt: number | null; expiresAt: number | null; version: string | null }
+  limits: { linkedDevices: 4; phoneOfflineDays: 14; deviceIdleDays: 30 }
+  updatedAt: number
+}
+```
+二维码有效期 **20 秒**；配对码有效期 **240 秒**。二维码过期只把 `qr.expired` 置为 `true` 并保留 `waiting_qr` 面板（界面显示遮罩与刷新按钮）；配对码过期进入 `failed`，`error.code='PAIRING_CODE_EXPIRED'`。
+服务端每张二维码/配对码都在响应与 SSE 中给出真实 `expiresAt`，客户端只按它倒计时，不写死。
+
+会话与消息（全部按绑定者 `owner_id` 隔离）：
+```ts
+type WhatsAppMessageDirection = 'in' | 'out'
+type WhatsAppMessageStatus = 'received' | 'sending' | 'sent' | 'failed'
+
+interface WhatsAppConversation {
+  id: string
+  remoteJid: string                  // 如 8613800138001@s.whatsapp.net
+  phone: string                      // E.164，如 +8613800138001
+  displayName: string
+  customerId: string | null          // 手动关联的客户（必须是当前用户能看到的客户）
+  lastMessageAt: number | null
+  lastMessagePreview: string
+  lastMessageDirection: WhatsAppMessageDirection | null
+  unreadCount: number
+  archivedAt: number | null          // 归档时间；归档的会话不在默认列表
+  pinnedAt: number | null            // 置顶时间；置顶的排在最前
+  tags: string[]                     // 会话标签（最多 8 个，不影响 CRM 客户标签）
+  draft: { text: string; createdAt: number } | null   // LULUX 起草、尚未发送的回复
+  customerName?: string | null       // 仅列表接口附带：手动关联或按号码匹配到的客户公司名
+  createdAt: number
+  updatedAt: number
+}
+
+interface WhatsAppMessage {
+  id: string
+  conversationId: string
+  direction: WhatsAppMessageDirection
+  type: 'text'                       // 本版仅文本
+  body: string
+  status: WhatsAppMessageStatus
+  failureReason: string | null
+  createdAt: number
+  updatedAt: number
+}
+```
+
+### 12.2 接口
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/whatsapp/status` | → `WhatsAppStatus`。非绑定者只能看到 `unbound` / `disconnected`，不会拿到号码、二维码或配对码 |
+| POST | `/api/whatsapp/risk-acceptance` | 记录当前账号已阅读风险确认（30 天有效，审计 `whatsapp.risk_accepted`）→ `WhatsAppStatus` |
+| POST | `/api/whatsapp/link/start` | `{ mode: 'qr' \| 'pairing', phone?: string }`。`pairing` 必须给带国家码的 E.164 手机号；返回从 `waiting_*` 开始的 `WhatsAppStatus`，后续内容通过 SSE 推送 |
+| POST | `/api/whatsapp/link/pairing-code` | `{ phone }` → `WhatsAppStatus`（重新申请 8 位配对码；未开始绑定时等价于 `link/start` 的 pairing 模式） |
+| POST | `/api/whatsapp/link/refresh-qr` | → `WhatsAppStatus`（换一张二维码；保留本次绑定的连续刷新计数，第 6 张起 `qr.warning=true`） |
+| POST | `/api/whatsapp/link/stop` | → `WhatsAppStatus`。停止当前握手或断开连接；**不删除凭据**，已绑定账号仍可重新连接 |
+| POST | `/api/whatsapp/logout` | `{ confirm: true }` → `WhatsAppStatus`。删除本机会话目录、作废凭据并在手机端退出这台设备；缺少 `confirm: true` → 400 `CONFIRMATION_REQUIRED` |
+写操作需要 `data:write`。整台服务只关联一个账号，归属锁定给第一个开始绑定的用户；其他人调用绑定、会话接口 → 409 `WHATSAPP_ACCOUNT_BUSY`。
+
+### 12.3 会话与消息接口
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/whatsapp/conversations?limit=&offset=&filter=&tag=&q=&sort=` | → `{ items: WhatsAppConversation[], total, hasMore }`。`filter`：`all`（不含已归档，默认）/ `unread` / `pending`（最后一条是对方发来的）/ `archived`；`tag` 只看带该标签的会话；`q` 搜名称、号码与关联客户公司名；`sort`：`recent`（默认）/ `unread`。置顶在前。未绑定时返回空列表 |
+| GET | `/api/whatsapp/conversations/counts` | → `{ all, unread, pending, archived, tags: [{ tag, count }] }` |
+| PATCH | `/api/whatsapp/conversations/:id` | `{ archived?, pinned?, tags?, customerId?, draft?: null }` → `WhatsAppConversation`。`customerId` 必须是当前用户可见的客户，`null` 取消关联；`draft` 只允许传 `null`（采用或丢弃 LULUX 草稿） |
+| GET | `/api/whatsapp/conversations/:id/profile` | → `{ match: 'manual' \| 'phone' \| null, customer, contactId, deals }`。手动关联优先，否则按号码匹配联系人；看不到的客户不返回 |
+| POST | `/api/whatsapp/conversations` | `{ phone, displayName? }` → 201 `WhatsAppConversation`。号码需为 E.164；已存在则复用并更新展示名 |
+| GET | `/api/whatsapp/conversations/:id/messages?limit=&before=` | → `{ items: WhatsAppMessage[], hasMore, nextCursor }`，按时间升序返回；`before` 传上一页的 `nextCursor` 取更早消息 |
+| POST | `/api/whatsapp/conversations/:id/messages` | `{ text }` → 201 `WhatsAppMessage`。先落 `sending` 再调用引擎，成功 `sent`，失败 `failed` + `failureReason`；未连接 → 409 `WHATSAPP_NOT_CONNECTED`，不落消息 |
+| POST | `/api/whatsapp/conversations/:id/read` | → `WhatsAppConversation`，未读数清零 |
+| POST | `/api/whatsapp/messages/:id/retry` | → `WhatsAppMessage`。仅允许重试 `direction='out' && status='failed'`；其他状态 → 409 `WHATSAPP_MESSAGE_NOT_RETRYABLE` |
+| GET / POST | `/api/whatsapp/quick-replies` | 当前用户自己的快捷回复：列表 `{ items }`；新建 `{ title, body }` → 201（每人最多 50 条） |
+| PATCH / DELETE | `/api/whatsapp/quick-replies/:id` | 修改标题 / 内容；删除 → 204 |
+| POST | `/api/whatsapp/translate` | `{ text, targetLang?, sourceLang?, conversationId? }` → `{ provider, kind, text, sourceLang, targetLang, requestedTarget }`。`targetLang` 缺省 `en`；`auto` 按会话最近一条入站消息判断，判断不出回退 `en` |
+
+写操作需要 `data:write`。`limit` 上限 100；消息正文最长 4096 字符，翻译文本最长 5000 字符。发送接口的错误响应在 `error.details` 中带 `{ messageId, conversationId }`，客户端据此定位失败气泡并重试。
+
+### 12.4 事件（`GET /api/events`，只推给绑定者）
+| 事件 | data | 说明 |
+| --- | --- | --- |
+| `whatsapp.status` | `WhatsAppStatus` | 状态变化（含二维码/配对码出现与清除、已连接、重连、错误） |
+| `whatsapp.qr` | `{ dataUrl, issuedAt, expiresAt, refreshCount, warning }` | 新二维码；刷新后再次推送 |
+| `whatsapp.pairing` | `{ code, phone, issuedAt, expiresAt }` | 新配对码；只存在内存与这次事件，不落盘、不写日志 |
+| `whatsapp.error` | `{ code, message }` | 可读错误；界面同时可从 `whatsapp.status.error` 取得 |
+| `whatsapp.message` | `WhatsAppMessage` | 新入站消息、出站状态变化（`sending` → `sent` / `failed`）；同一消息可能推送多次，客户端按 `id` 合并 |
+| `whatsapp.conversation` | `WhatsAppConversation` | 会话摘要变化（最后消息、未读数、已读、整理、草稿） |
+
+### 12.5 错误
+| HTTP | code | 场景 |
+| --- | --- | --- |
+| 400 | `PAIRING_INVALID_PHONE` | 手机号不是 `+` 开头的 E.164（8–15 位数字） |
+| 400 | `CONFIRMATION_REQUIRED` | 解绑未带 `confirm: true` |
+| 403 | `RISK_ACCEPTANCE_REQUIRED` | 尚未确认风险或已超过 30 天 |
+| 409 | `WHATSAPP_ACCOUNT_BUSY` | 这台服务已绑定其他用户（出口代理：非绑定者且不是老板 / 管理员） |
+| 409 | `WHATSAPP_NOT_LINKED` | 没有可操作的绑定会话 |
+| 502 | `ENGINE_START_FAILED` / `PAIRING_FAILED` / `QR_REFRESH_FAILED` | 引擎启动或握手失败 |
+| 503 | `ENGINE_NOT_INSTALLED` | 运行时引擎未安装 |
+| 503 | `ENGINE_LOAD_FAILED` | 引擎缺依赖 / 加载失败（如缺 `qrcode`，扫码模式不可用） |
+| 401 | `AUTH_LOGGED_OUT` | 手机端登出；本地凭据立即作废，状态 `reauth`，不自动重连 |
+| 401 | `AUTH_REPLACED` | 号码被别处顶替；本地凭据立即作废，状态 `reauth`，不自动重连 |
+| 502 | `RECONNECT_EXHAUSTED` | 普通断线按 1/2/4/8/30 秒重连 5 次仍失败 |
+| 400 | `WHATSAPP_INVALID_PHONE` | 新建会话号码不是 `+` 开头的 E.164 |
+| 400 | `WHATSAPP_MESSAGE_EMPTY` / `WHATSAPP_MESSAGE_TOO_LONG` | 消息为空或超过 4096 字符 |
+| 409 | `WHATSAPP_NOT_CONNECTED` | 引擎缺失或未连接时发送；消息不落库 |
+| 502 | `WHATSAPP_SEND_FAILED` | 引擎发送失败；消息已标记 `failed`，可调用重试 |
+| 404 | `WHATSAPP_CONVERSATION_NOT_FOUND` / `WHATSAPP_MESSAGE_NOT_FOUND` | 会话/消息不存在或不属于当前用户 |
+| 409 | `WHATSAPP_MESSAGE_NOT_RETRYABLE` | 仅失败出站消息可重试 |
+| 409 | `WHATSAPP_QUICK_REPLY_LIMIT` | 快捷回复超过 50 条 |
+| 404 | `WHATSAPP_QUICK_REPLY_NOT_FOUND` | 快捷回复不存在或不属于当前用户 |
+| 400 | `WHATSAPP_PROXY_INVALID` | 代理地址 / 端口 / 协议不合法 |
+| 400 | `TRANSLATION_INVALID_TEXT` / `TRANSLATION_INVALID_TARGET` | 翻译文本为空/过长，或目标语言不在清单 |
+| 503 | `TRANSLATOR_NOT_INSTALLED` | 翻译引擎未安装；`error.details.installHint` 指向安装文档 |
+| 503 | `TRANSLATOR_LOAD_FAILED` / `TRANSLATOR_DISABLED` | 翻译引擎加载失败，或已安装但被禁用（付费云/LLM 默认禁用） |
+| 502 | `TRANSLATION_FAILED` | 翻译引擎执行失败 |
+
+### 12.6 凭据与安装
+- 目录：`LULUX_WHATSAPP_DIR`，缺省 `<dataDir>/whatsapp`；会话凭据在 `sessions/default/`，目录 `0700`、文件 `0600`。配对码与二维码原串不写盘、不写日志。
+- 重启后 `account.json` 仍可识别归属与绑定信息。团队服务器（`LULUX_MODE=server`）在凭据有效时自动重新连接；桌面端不自动联网，由用户点击「重新连接」。
+- 引擎查找顺序：`LULUX_WHATSAPP_ENGINE_DIR` → `<dataDir>/whatsapp/engine` 下的 `node_modules` → 仓库 `.eta-engines/whatsapp/node_modules`。安装命令、离线包与许可提示见 `docs/WHATSAPP-ENGINE.md`；`.eta-engines/` 已加入 `.gitignore`。
+- 风险确认、绑定成功、解绑与代理变更分别写审计：`whatsapp.risk_accepted` / `whatsapp.linked` / `whatsapp.logout` / `whatsapp.proxy_update`。
+
+### 12.7 翻译引擎（运行时安装）
+- 翻译引擎**不进任何 `package.json`**，服务端按 `LULUX_WHATSAPP_TRANSLATOR_DIR` → `<dataDir>/whatsapp/translator` → 仓库 `.eta-engines/translator` 查找运行时包；包需导出 `createTranslator()`。
+- 目标语言清单首项为 `en`（默认），另含 `zh-Hans/zh-Hant/ja/ko/ru/es/pt/fr/de/ar/th/vi/id` 与 `auto`。`auto` 只在用户显式选择时生效，绝不是初始值。
+- 内置可注入的 `fake` 翻译器（`LULUX_WHATSAPP_TRANSLATOR=fake`），仅用于测试与界面验收；未安装真实引擎时返回 `TRANSLATOR_NOT_INSTALLED`，**绝不返回原文冒充译文**。
+- 付费云/LLM 仅保留 provider 接口（`enabled: false`，不读取 API key、不联网）。安装与 provider 契约见 `docs/WHATSAPP-TRANSLATOR.md`。
+
+### 12.8 出口代理
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/whatsapp/proxy` | → `{ proxy: { protocol, host, port, username, hasPassword, updatedAt } \| null }`，密码不回传 |
+| PUT | `/api/whatsapp/proxy` | `{ protocol: 'socks5' \| 'http' \| 'https', host, port, username?, password? }` → `{ proxy, reconnected }`。`password` 不传 = 保留原密码，空字符串 = 清除；已连接时用新出口重连 |
+| DELETE | `/api/whatsapp/proxy` | 清除代理，改为直连 → `{ proxy: null, reconnected }` |
+| POST | `/api/whatsapp/proxy/test` | `{ proxy? }` → `{ ok, ip?, country?, city?, latencyMs?, error? }`；不传 `proxy` 时测试已保存的代理 |
+
+只有一个出口代理，作用于整台服务关联的账号。桌面端由本机用户设置；团队服务器由已绑定的成员（尚未绑定时任何有写权限的成员）或老板 / 管理员设置。密码用主密钥加密保存。
+
+### 12.9 Agent 工具（工具集 `whatsapp`）
+- `whatsapp_conversations`：查会话（筛选 / 搜索）；`whatsapp_read_messages`：读某个会话的消息；
+- `whatsapp_draft_reply`：把回复存为会话草稿（`draft`），**不发送**，界面显示草稿卡由用户“使用并编辑”或“丢弃”；
+- `whatsapp_send_message`：发送文本，**每次都需要审批**，与会话权限档无关。
 
 ## 变更记录
 - 0.1.1（2026-10-21）：首个公开版本。

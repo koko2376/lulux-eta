@@ -1,6 +1,6 @@
 {
   "name": "lulux-eta",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "private": true,
   "description": "LULUX ETA (LULUX External Trade Agent) — a foreign-trade AI agent workspace that runs locally on your desktop or on your own team server",
   "author": "koko",

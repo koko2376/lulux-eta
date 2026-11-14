@@ -85,8 +85,9 @@ describe('按需工具集', () => {
     expect(names(req)).toEqual(expect.arrayContaining(['list_overdue_receivables', 'record_payment', 'list_orders', 'tool_search']))
     expect(names(req)).not.toContain('update_quote')
     expect(names(req)).not.toContain('mcp_add')
-    // 基准 25.5KB：v0.1.2 起 tool_search 目录多了“内置浏览器”“电脑操作”“群聊”“开发客户”“开发信序列”工具集各一行
-    expect(1 - toolBytes(req) / 25_500).toBeGreaterThan(0.6)
+    // 基准 26KB：v0.1.2 起 tool_search 目录多了“内置浏览器”“电脑操作”“群聊”“开发客户”“开发信序列”工具集各一行；
+    // v0.1.4 又多了“WhatsApp”一行
+    expect(1 - toolBytes(req) / 26_000).toBeGreaterThan(0.6)
   })
 
   it('tool_search 加载后下一次上游请求即带上新工具，并可调用；之后同会话保持', async () => {

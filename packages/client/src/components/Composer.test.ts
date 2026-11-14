@@ -88,6 +88,8 @@ describe('输入框：图片粘贴 / 拖放 / 限制', () => {
   beforeEach(() => {
     uploads.length = 0
     caps.vision = true
+    // 输入框草稿现在会落盘：每个用例从干净的本机存储开始，否则上一个用例的草稿会被恢复出来
+    localStorage.clear()
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() }))
   })
   afterEach(() => {

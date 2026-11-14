@@ -196,12 +196,24 @@ export const dealService = {
     const scope = liveClause('c')
     const where = [scope.sql, 'd.org_id = ?', 'd.deleted_at IS NULL']
     const params: Array<string | number> = [...scope.params, actor.orgId]
-    if (query.stage === 'open') where.push(`d.stage IN (${OPEN_DEAL_STAGES.map(() => '?').join(',')})`), params.push(...OPEN_DEAL_STAGES)
+    if (query.stage === 'open') {
+      where.push(`d.stage IN (${OPEN_DEAL_STAGES.map(() => '?').join(',')})`)
+      params.push(...OPEN_DEAL_STAGES)
+    }
     else if (query.stage === 'closed') where.push("d.stage IN ('won','lost')")
-    else if (query.stage !== 'all') where.push('d.stage = ?'), params.push(query.stage)
-    if (query.customerId) where.push('d.customer_id = ?'), params.push(query.customerId)
+    else if (query.stage !== 'all') {
+      where.push('d.stage = ?')
+      params.push(query.stage)
+    }
+    if (query.customerId) {
+      where.push('d.customer_id = ?')
+      params.push(query.customerId)
+    }
     const mine = query.mine === true || query.mine === '1' || query.mine === 'true'
-    if (mine) where.push('d.owner_id = ?'), params.push(actor.id)
+    if (mine) {
+      where.push('d.owner_id = ?')
+      params.push(actor.id)
+    }
     const from = `FROM deals d JOIN customers c ON c.id = d.customer_id WHERE ${where.join(' AND ')}`
     const total = Number((db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...params) as unknown as { n: number }).n)
     const rows = db

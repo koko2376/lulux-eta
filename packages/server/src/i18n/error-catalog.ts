@@ -21,9 +21,9 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
   // ── generic / HTTP layer ─────────────────────────────────────────
   BAD_REQUEST: [["请求格式不正确", "Malformed request"]],
   NOT_FOUND: [
-    ["{0}不存在", "{0} not found"],
+                ["{0}不存在", "{0} not found"],
     ["接口不存在", "Endpoint not found"],
-    ["负责人不存在或已停用", "Owner not found or disabled"],
+        ["负责人不存在或已停用", "Owner not found or disabled"],
     ["接收人不存在或已停用", "Recipient not found or disabled"],
   ],
   METHOD_NOT_ALLOWED: [["不支持的请求方法", "Method not allowed"]],
@@ -54,7 +54,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ],
   ],
   NOT_AVAILABLE_IN_MODE: [
-    [
+            [
       "团队服务器模式不使用本机锁",
       "The local lock is not used in team server mode",
     ],
@@ -79,6 +79,12 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
 
   // ── validation ────────────────────────────────────────────────
   VALIDATION_ERROR: [
+                                ["分页游标与当前筛选或排序不匹配，请重新筛选", "The page cursor does not match the current filters or sort; filter again"],
+            ["缺少目标阶段", "The target stage is required"],
+    ["缺少接收负责人", "The new owner is required"],
+    ["缺少标签", "The tag is required"],
+    ["本页批量操作需要至少一个客户 id", "Select at least one customer for a batch action on this page"],
+    ["customerIds 与 filters 必须且只能给一个", "Provide exactly one of customerIds or filters"],
     ["需要提供 title、groupName、agentIds、members、supervisorId、permissionLevel、model 或 reasoningEffort", "Provide title, groupName, agentIds, members, supervisorId, permissionLevel, model or reasoningEffort"],
     ["agentIds 与 members 只能给一个", "Provide either agentIds or members, not both"],
     ["节点「{0}」的主管只能是 LULUX、无主管或本节点的成员", "The supervisor of node “{0}” must be LULUX, none, or one of the node’s members"],
@@ -343,8 +349,8 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
 
   // ── permissions ───────────────────────────────────────────────
   FORBIDDEN: [
-    ["只有 owner 可以修改", "Only the owner can change this"],
-    ["自动发送只能由用户在界面上开启", "Auto-send can only be turned on by the user in the app"],
+                            ["只有 owner 可以修改", "Only the owner can change this"],
+            ["自动发送只能由用户在界面上开启", "Auto-send can only be turned on by the user in the app"],
     ["只能控制自己会话里的浏览器", "You can only control the browser in your own sessions"],
     ["只能控制自己会话里的电脑操作", "You can only control computer use in your own sessions"],
     ["只有 owner 或管理员可以操作", "Only the owner or an admin can do this"],
@@ -464,7 +470,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ],
   ],
   COMPUTER_UNAVAILABLE: [
-    [
+        [
       "电脑操作不可用：需要桌面端本地模式，并在设置里打开“电脑操作（实验性）”",
       "Computer use is unavailable: it needs the desktop app in local mode, with “Computer use (experimental)” turned on in Settings",
     ],
@@ -514,7 +520,6 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
       "The session workspace exceeds the 50 MB limit",
     ],
   ],
-  INVALID_ATTACHMENT: [],
   NO_AGENT: [["会话没有可用的 Agent", "This session has no available agent"]],
   NOTHING_TO_REGENERATE: [
     ["没有可以重新生成的用户消息", "There is no user message to regenerate"],
@@ -536,7 +541,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
 
   // ── providers / models / kernels ──────────────────────────────
   KERNEL_UNAVAILABLE: [
-    ["「{0}」暂不可用：{1}", "“{0}” is unavailable: {1}"],
+            ["「{0}」暂不可用：{1}", "“{0}” is unavailable: {1}"],
     ["{0} 未安装", "{0} is not installed"],
   ],
   NO_PROVIDER: [
@@ -604,7 +609,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["无法连接服务商：{0}", "Cannot reach the provider: {0}"],
   ],
   KERNEL_FAILED: [
-    [
+            [
       "{0}（经由 LULUX 模型）运行失败：{1}",
       "{0} (via LULUX model) failed: {1}",
     ],
@@ -625,7 +630,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["上面的内容不完整。", "The output above is incomplete. "],
   ],
   KERNEL_EXITED: [
-    [
+        [
       "{0} 异常退出（{1}），上面的回答可能不完整：{2}",
       "{0} exited abnormally ({1}); the answer above may be incomplete: {2}",
     ],
@@ -670,7 +675,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
 
   // ── CRM: customers / quotes / deals / orders ─────────────────
   BAD_ARGS: [
-    ["参数 {0} 必须是整数", "Parameter {0} must be an integer"],
+            ["参数 {0} 必须是整数", "Parameter {0} must be an integer"],
     ["币种代码不正确：{0}/{1}", "Invalid currency codes: {0}/{1}"],
     ["只能给收到的邮件打询盘分", "Only received emails can be scored as inquiries"],
     ["序列步骤不存在", "Sequence step not found"],
@@ -784,7 +789,6 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["不支持的导入格式：{0}", "Unsupported import format: {0}"],
   ],
   BACKUP_FAILED: [["备份失败：{0}", "Backup failed: {0}"]],
-  BACKUP_INVALID: [],
   INVALID_BACKUP_NAME: [["备份文件名不正确", "Invalid backup file name"]],
 
   // ── email ─────────────────────────────────────────────────────
@@ -826,6 +830,72 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
   EMAIL_SEND_FAILED: [["发送失败：{0}", "Sending failed: {0}"]],
   EMAIL_SYNC_FAILED: [["同步失败：{0}", "Sync failed: {0}"]],
   NO_HTML: [["这封邮件没有 HTML 正文", "This email has no HTML body"]],
+  REMOTE_IMAGES_NOT_ALLOWED: [
+    [
+      "请先为这封邮件开启「显示远程图片」",
+      "Enable “Show remote images” for this email first",
+    ],
+  ],
+  IMAGE_URL_INVALID: [
+    ["远程图片地址格式不正确", "The remote image URL is malformed"],
+    [
+      "远程图片只支持 http:// 或 https:// 地址",
+      "Remote images support only http:// or https:// URLs",
+    ],
+    [
+      "远程图片地址不能包含用户名或密码",
+      "The remote image URL must not contain a username or password",
+    ],
+    ["远程图片地址缺少主机名", "The remote image URL has no host name"],
+  ],
+  IMAGE_URL_BLOCKED: [
+    [
+      "该地址指向本机或内网，已拒绝加载",
+      "The URL points to this machine or a private network and was blocked",
+    ],
+    [
+      "远程图片重定向地址无效，已拒绝",
+      "The remote image redirect target is invalid and was blocked",
+    ],
+  ],
+  IMAGE_FETCH_FAILED: [
+    ["无法解析图片域名：{0}", "Could not resolve the image host: {0}"],
+    ["图片域名没有可用地址", "The image host has no usable address"],
+    ["远程图片响应为空", "The remote image response was empty"],
+    ["远程图片下载失败", "Failed to download the remote image"],
+    ["远程图片返回 HTTP {0}", "The remote image returned HTTP {0}"],
+    ["远程图片内容为空", "The remote image content was empty"],
+    [
+      "远程图片重定向缺少目标地址",
+      "The remote image redirect has no target URL",
+    ],
+    ["远程图片重定向次数过多", "Too many remote image redirects"],
+  ],
+  IMAGE_PROXY_BUSY: [
+    [
+      "远程图片加载排队超时，请稍后再试",
+      "Timed out waiting to load remote images; try again later",
+    ],
+  ],
+  IMAGE_PROXY_TIMEOUT: [
+    ["远程图片加载超时", "Timed out loading the remote image"],
+  ],
+  IMAGE_TOO_LARGE: [
+    [
+      "远程图片超过单张大小上限",
+      "The remote image exceeds the per-image size limit",
+    ],
+  ],
+  IMAGE_BAD_TYPE: [
+    [
+      "远程图片类型不受支持（仅 PNG / JPEG / GIF / WebP）",
+      "Unsupported remote image type (PNG / JPEG / GIF / WebP only)",
+    ],
+    [
+      "远程图片内容与声明类型不一致，已拒绝",
+      "The remote image content does not match its declared type and was blocked",
+    ],
+  ],
   ALREADY_LINKED: [
     ["这封邮件已经关联了客户", "This email is already linked to a customer"],
   ],
@@ -956,7 +1026,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ],
   ],
   SKILL_BUILTIN_CONFLICT: [
-    [
+        [
       "「{0}」是内置 skill，不能被覆盖；请换一个 name",
       "“{0}” is a built-in skill and cannot be overwritten; choose another name",
     ],
@@ -976,6 +1046,154 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["下载失败：HTTP {0}（{1}）", "Download failed: HTTP {0} ({1})"],
     ["下载失败：{0}", "Download failed: {0}"],
   ],
+
+  // ── WhatsApp linked device ───────────────────────────────────
+  RISK_ACCEPTANCE_REQUIRED: [
+    [
+      "请先阅读并勾选 WhatsApp 关联设备风险确认，再开始绑定",
+      "Read and accept the WhatsApp linked-device risk notice before linking",
+    ],
+  ],
+  WHATSAPP_ACCOUNT_BUSY: [
+    [
+      "这台服务已经绑定了其他用户的 WhatsApp 账号，请先由该用户解绑",
+      "This server already has another user's WhatsApp account linked; that user must unlink it first",
+    ],
+    [
+      "只有绑定该 WhatsApp 账号的用户可以执行此操作",
+      "Only the user who linked this WhatsApp account can perform this action",
+    ],
+    [
+      "只有绑定该 WhatsApp 账号的用户可以读取会话",
+      "Only the user who linked this WhatsApp account can read its chats",
+    ],
+  ],
+  WHATSAPP_NOT_LINKED: [
+    ["当前没有 WhatsApp 绑定会话，请先开始绑定", "No WhatsApp linking session is active; start linking first"],
+  ],
+  ENGINE_NOT_INSTALLED: [
+    ["WhatsApp 引擎尚未安装", "The WhatsApp engine is not installed"],
+    [
+      "WhatsApp 引擎尚未安装：在 {0} 找不到 baileys。请按 docs/WHATSAPP-ENGINE.md 在本机安装运行时引擎后重试",
+      "The WhatsApp engine is not installed: baileys was not found in {0}. Install the runtime engine as described in docs/WHATSAPP-ENGINE.md and try again",
+    ],
+    [
+      "WhatsApp 引擎目录不完整：{0} 下缺少 baileys",
+      "The WhatsApp engine directory is incomplete: baileys is missing under {0}",
+    ],
+  ],
+  ENGINE_LOAD_FAILED: [
+    [
+      "WhatsApp 引擎缺少二维码渲染依赖 qrcode，请重新安装运行时引擎（见 docs/WHATSAPP-ENGINE.md）",
+      "The WhatsApp engine is missing the qrcode renderer. Reinstall the runtime engine (see docs/WHATSAPP-ENGINE.md)",
+    ],
+    [
+      "WhatsApp 引擎加载失败：{0}。请检查引擎版本与二维码依赖（qrcode）是否安装完整",
+      "Failed to load the WhatsApp engine: {0}. Check that the engine version and qrcode dependency are installed correctly",
+    ],
+  ],
+  PAIRING_INVALID_PHONE: [
+    [
+      "手机号格式不正确：请输入带国家码的 E.164 号码（如 +8613800138000）",
+      "Invalid phone number: enter an E.164 number with country code (for example +8613800138000)",
+    ],
+    [
+      "请填写带国家码的手机号，例如 +8613800138000",
+      "Enter a phone number with country code, for example +8613800138000",
+    ],
+  ],
+  PAIRING_FAILED: [
+    ["WhatsApp 引擎尚未建立连接，无法生成配对码", "The WhatsApp engine is not connected yet; cannot request a pairing code"],
+    ["配对码生成失败：{0}", "Failed to request a pairing code: {0}"],
+  ],
+  PAIRING_REJECTED: [["配对码生成失败：{0}", "Failed to request a pairing code: {0}"]],
+  PAIRING_CODE_INVALID: [
+    ["WhatsApp 返回的配对码格式不正确，请重试", "WhatsApp returned a malformed pairing code; try again"],
+  ],
+  CONFIRMATION_REQUIRED: [
+    [
+      "解绑会立即删除本机凭据并在手机上退出这台设备，请二次确认后重试",
+      "Unlinking deletes the local credentials and signs this device out on your phone; confirm again to continue",
+    ],
+  ],
+  WHATSAPP_NOT_CONNECTED: [
+    [
+      "WhatsApp 尚未连接，消息未发送；请先完成绑定或等待重连成功",
+      "WhatsApp is not connected, so the message was not sent; finish linking or wait for reconnection",
+    ],
+    [
+      "WhatsApp 引擎未连接，消息未发送",
+      "The WhatsApp engine is not connected; the message was not sent",
+    ],
+    ["WhatsApp 尚未连接，消息未发送", "WhatsApp is not connected; the message was not sent"],
+  ],
+  CURSOR_REQUIRED: [
+    [
+      "页码过深（超过 {0} 行），请使用 cursor 或缩小筛选条件",
+      "The page is too deep (more than {0} rows); use a cursor or narrow the filters",
+    ],
+  ],
+  BATCH_TOO_LARGE: [
+    ["单批最多 {0} 个客户", "A batch can include at most {0} customers"],
+    [
+      "筛选结果超过 {0} 个客户，请缩小筛选条件后重试",
+      "The filter matches more than {0} customers; narrow the filters and try again",
+    ],
+  ],
+  WHATSAPP_SEND_FAILED: [
+    ["消息发送失败：{0}", "Failed to send the message: {0}"],
+    ["WhatsApp 消息发送失败：{0}", "WhatsApp failed to send the message: {0}"],
+  ],
+  WHATSAPP_CONVERSATION_NOT_FOUND: [
+    ["会话不存在", "Conversation not found"],
+    ["会话不存在或不属于当前用户", "The conversation does not exist or belongs to another user"],
+  ],
+  WHATSAPP_MESSAGE_NOT_FOUND: [
+    ["消息不存在或不属于当前用户", "The message does not exist or belongs to another user"],
+  ],
+  WHATSAPP_QUICK_REPLY_NOT_FOUND: [["快捷回复不存在", "The quick reply does not exist"]],
+  WHATSAPP_QUICK_REPLY_LIMIT: [["快捷回复最多 50 条", "You can save up to 50 quick replies"]],
+  WHATSAPP_MESSAGE_NOT_RETRYABLE: [
+    ["只有发送失败的消息可以重试", "Only messages that failed to send can be retried"],
+  ],
+  WHATSAPP_INVALID_PHONE: [
+    [
+      "手机号格式不正确：请输入带国家码的 E.164 号码（如 +8613800138000）",
+      "Invalid phone number: enter an E.164 number with country code (for example +8613800138000)",
+    ],
+  ],
+  WHATSAPP_MESSAGE_EMPTY: [["消息内容不能为空", "The message text cannot be empty"]],
+  WHATSAPP_MESSAGE_TOO_LONG: [
+    ["消息内容过长（最多 4096 字符）", "The message is too long (4096 characters maximum)"],
+  ],
+  TRANSLATOR_NOT_INSTALLED: [
+    [
+      "未安装 WhatsApp 翻译引擎，无法翻译输入；请先安装本地离线翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
+      "The WhatsApp translation engine is not installed, so the input cannot be translated. Install a local offline translator first (see docs/WHATSAPP-TRANSLATOR.md)",
+    ],
+    [
+      "未安装 WhatsApp 翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
+      "The WhatsApp translation engine is not installed (see docs/WHATSAPP-TRANSLATOR.md)",
+    ],
+  ],
+  TRANSLATOR_LOAD_FAILED: [
+    ["翻译引擎目录不可用，请重新安装", "The translator folder is unavailable; reinstall the translator"],
+    ["翻译引擎加载失败：{0}", "Failed to load the translation engine: {0}"],
+  ],
+  TRANSLATOR_DISABLED: [
+    [
+      "翻译引擎已安装但未启用（付费云/LLM provider 默认关闭）",
+      "The translation engine is installed but disabled (paid cloud/LLM providers are off by default)",
+    ],
+  ],
+  TRANSLATION_INVALID_TEXT: [
+    ["要翻译的文本不能为空", "The text to translate cannot be empty"],
+    ["要翻译的文本过长（最多 5000 字符）", "The text to translate is too long (5000 characters maximum)"],
+  ],
+  TRANSLATION_INVALID_TARGET: [
+    ["不支持的目标语言：{0}", "Unsupported target language: {0}"],
+  ],
+  TRANSLATION_FAILED: [["翻译失败：{0}", "Translation failed: {0}"]],
 
   // ── shared: fragments and helper-error messages ──────────────
   // ── merged features: member lifecycle, backups, rate limits, mailbox privacy, CRM dedupe / trash ──
@@ -997,7 +1215,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ],
   ],
   RATE_LIMITED: [
-    [
+        [
       "你同时进行中的对话已达上限（{0} 个），请等其中一个完成或先停止后再发送",
       "You have reached the limit of {0} concurrent conversations; wait for one to finish or stop one before sending",
     ],
@@ -1011,6 +1229,12 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
       "将以成员邮箱 {0} 的身份发出，请确认后再发送",
       "This will be sent as the member mailbox {0}; confirm before sending",
     ],
+  ],
+  WHATSAPP_PROXY_INVALID: [
+    ["代理类型只支持 socks5、http、https", "Proxy type must be socks5, http or https"],
+    ["代理地址格式不正确", "Invalid proxy host"],
+    ["代理端口应在 1 到 65535 之间", "Proxy port must be between 1 and 65535"],
+    ["还没有配置代理", "No proxy is configured yet"],
   ],
   MAILBOX_PRIVATE: [
     [
@@ -1044,7 +1268,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["这封已经处理过了", "This email has already been handled"],
   ],
   _: [
-    ["命令里不能包含换行或其他控制字符", "The command must not contain line breaks or other control characters"],
+                                ["命令里不能包含换行或其他控制字符", "The command must not contain line breaks or other control characters"],
     ["参数里不能包含换行或其他控制字符", "Arguments must not contain line breaks or other control characters"],
     ["不允许设置环境变量 {0}：它会改变实际运行的程序或加载的代码", "Setting environment variable {0} is not allowed: it changes which program runs or what code it loads"],
     [
@@ -1078,7 +1302,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["会话", "Session"],
     ["报价模板", "Quote template"],
     ["客户", "Customer"],
-    ["潜客", "Prospect"],
+        ["潜客", "Prospect"],
     ["运价", "Freight rate"],
     ["产品（第 {0} 行）", "Product (row {0})"],
     ["目的港不能为空", "Destination port cannot be empty"],
@@ -1122,6 +1346,11 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["收款记录", "Payment"],
     ["工作流", "Workflow"],
     ["定时任务", "Scheduled task"],
+    ["触发器", "Trigger"],
+    ["目标", "Goal"],
+    ["绑定", "Binding"],
+    ["通道", "Channel"],
+                    ["消息", "Message"],
     ["商机", "Deal"],
     ["成员", "Member"],
     ["团队", "Team"],
@@ -1163,7 +1392,7 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
     ["服务器已禁用内核", "Kernels are disabled on this server"],
     ["未安装", "Not installed"],
     ["需要登录", "Sign-in required"],
-    [
+                [
       "请先在模型与密钥中配置模型",
       "Configure a model under Models & Keys first",
     ],
@@ -1371,9 +1600,9 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
       "Provide either command (local MCP) or url (remote HTTP MCP)",
     ],
     ["名称不能为空", "Name cannot be empty"],
-    ["命令不能为空", "Command cannot be empty"],
+                        ["命令不能为空", "Command cannot be empty"],
     ["邮箱格式不正确", "Invalid email address"],
-    ["不能为空", "Cannot be empty"],
+            ["不能为空", "Cannot be empty"],
     ["公司名不能为空", "Company name cannot be empty"],
     ["id 格式不正确", "Invalid id format"],
     ["日期格式应为 YYYY-MM-DD", "Date must be YYYY-MM-DD"],

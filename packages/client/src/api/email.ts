@@ -174,6 +174,8 @@ export interface EmailMessage extends EmailMessageSummary {
   text: string
   hasHtml: boolean
   truncated: boolean
+  /** 远程图片状态：hasRemote 表示正文含外部图片，allowed 表示已为本邮件开启「显示远程图片」 */
+  remoteImages: { hasRemote: boolean; allowed: boolean }
   attachments: EmailAttachment[]
 }
 
@@ -279,8 +281,15 @@ export const getOAuthStatus = (
 export const listEmailMessages = (query: MessageQuery): Promise<{ items: EmailMessageSummary[]; total: number }> =>
   request('/api/email/messages', { query: query as Record<string, string | number | undefined> })
 export const getEmailMessage = (id: string): Promise<EmailMessage> => request(`/api/email/messages/${enc(id)}`)
-export const getEmailMessageHtml = (id: string): Promise<string> =>
-  request(`/api/email/messages/${enc(id)}/html`, { text: true, silent: true })
+export const getEmailMessageHtml = (id: string, opts: { remote?: boolean } = {}): Promise<string> =>
+  request(`/api/email/messages/${enc(id)}/html`, {
+    text: true,
+    silent: true,
+    query: opts.remote ? { remote: 1 } : undefined,
+  })
+/** 为当前用户持久化「显示远程图片」选择；仅影响这一封邮件 */
+export const setEmailRemoteImages = (id: string, allow: boolean): Promise<{ allowed: boolean }> =>
+  request(`/api/email/messages/${enc(id)}/remote-images`, { method: 'PUT', body: { allow } })
 export const patchEmailMessage = (
   id: string,
   body: { seen?: boolean; flagged?: boolean; verdict?: Verdict; customerId?: string | null },

@@ -147,6 +147,8 @@ export class BrowserAgent {
     const command = cmd as Record<string, unknown>
     const action = command.action
     if (typeof action !== 'string') badArgs('缺少 action')
+    // 运行结束释放租约：不占用、不算一步
+    if (action === 'release') return this.release(typeof command.sessionId === 'string' ? command.sessionId : '')
     if (action !== 'status') {
       this.claim(typeof command.sessionId === 'string' ? command.sessionId : '')
       this.updateGuard(command.deniedDomains)
@@ -171,6 +173,19 @@ export class BrowserAgent {
     }
     if (!current || current.sessionId !== sessionId) this.token = null
     this.owner = { sessionId, at: now }
+  }
+
+  /** 释放租约：只有当前持有者能释放；释放后别的会话立即可用，导航拦截随之解除，界面收起状态条 */
+  release(sessionId: string): { released: boolean } {
+    const current = this.owner
+    if (!sessionId || !current || current.sessionId !== sessionId) return { released: false }
+    this.owner = null
+    this.token = null
+    this.deniedDomains = []
+    const controller = this.getController()
+    if (controller) controller.navigationGuard = null
+    this.activity('release', '', sessionId)
+    return { released: true }
   }
 
   /** 黑名单随命令下发：Agent 持有浏览器期间（租约内）在导航发生前拦截命中的网址 */

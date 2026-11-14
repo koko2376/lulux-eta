@@ -392,6 +392,22 @@ describe('暂停 / 停止', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('运行结束 endRun：立即向桌面端发 release；runId 不符（新运行已开始）不发；暂停中的等待被放行', async () => {
+    const { browserControl } = await import('../src/services/browser/control.js')
+    browserControl.beginRun('s-test', 'run_a')
+    browserControl.endRun('s-test', 'run_b')
+    expect(calls.filter((c) => c.action === 'release')).toHaveLength(0)
+    browserControl.set('s-test', 'pause')
+    const waiting = browserControl.waitUntilReady('s-test', new AbortController().signal)
+    browserControl.endRun('s-test', 'run_a')
+    await expect(waiting).resolves.toBe('running')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls.filter((c) => c.action === 'release')).toEqual([{ action: 'release', sessionId: 's-test' }])
+    // 通道不可用时不抛错
+    channelAvailable = false
+    expect(() => browserControl.endRun('s-test', null)).not.toThrow()
+  })
+
   it('每次运行开始时状态复位为 running（beginRun）', async () => {
     const { browserControl } = await import('../src/services/browser/control.js')
     handler = () => ({ ok: true, result: snapshotPage })

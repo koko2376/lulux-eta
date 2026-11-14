@@ -39,7 +39,7 @@ function resolveHome(): string {
   return DEFAULT_DIR
 }
 
-export const APP_VERSION = '0.1.2'
+export const APP_VERSION = '0.1.4'
 
 /**
  * 能连接本服务端的最低客户端版本（低于它的客户端接口不兼容，必须先升级）。
