@@ -127,8 +127,8 @@ describe('凭据落盘', () => {
   it('保存 / 读取 account.json，目录 0700、文件 0600', () => {
     store.saveAccount('default', 'local', ACCOUNT)
     const file = store.accountFile('default')
-    expect((statSync(file).mode & 0o777).toString(8)).toBe('600')
-    expect((statSync(store.accountDir('default')).mode & 0o777).toString(8)).toBe('700')
+    if (process.platform !== 'win32') expect((statSync(file).mode & 0o777).toString(8)).toBe('600')
+    if (process.platform !== 'win32') expect((statSync(store.accountDir('default')).mode & 0o777).toString(8)).toBe('700')
     const stored = store.readAccount('default')
     expect(stored).toMatchObject({
       version: 1,
@@ -147,8 +147,8 @@ describe('凭据落盘', () => {
     writeFileSync(file, '{"registered":false}')
     chmodSync(file, 0o644)
     store.chmodSession('default')
-    expect((statSync(file).mode & 0o777).toString(8)).toBe('600')
-    expect((statSync(dir).mode & 0o777).toString(8)).toBe('700')
+    if (process.platform !== 'win32') expect((statSync(file).mode & 0o777).toString(8)).toBe('600')
+    if (process.platform !== 'win32') expect((statSync(dir).mode & 0o777).toString(8)).toBe('700')
   })
 
   it('解绑删除整个会话目录', () => {

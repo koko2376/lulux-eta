@@ -179,7 +179,7 @@ describe('WhatsApp 关联设备接口', () => {
     const accountFile = `${server.home}/whatsapp/sessions/default/account.json`
     expect(existsSync(accountFile)).toBe(true)
     const { statSync, readFileSync } = await import('node:fs')
-    expect((statSync(accountFile).mode & 0o777).toString(8)).toBe('600')
+    if (process.platform !== 'win32') expect((statSync(accountFile).mode & 0o777).toString(8)).toBe('600')
     expect(JSON.parse(readFileSync(accountFile, 'utf8')).ownerId).toBe('local')
 
     const refused = await api('POST', '/api/whatsapp/logout', {})
