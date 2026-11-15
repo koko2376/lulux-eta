@@ -164,3 +164,24 @@ describe('WhatsApp 历史同步（假引擎）', () => {
     expect(bMessages.map((m: { body: string }) => m.body)).toEqual(['Guten Tag, I need 500 units.', '[Voice message]'])
   })
 })
+
+describe('WhatsApp 同步：本机发出的消息回显不重复', () => {
+  it('引擎回显自己刚发出（或正在重试）的消息时跳过，不写第二条', async () => {
+    const store = await import('../src/services/whatsapp/store.js')
+    const owner = 'echo-owner'
+    const conversation = store.openConversation({ ownerId: owner, orgId: 'local', phone: '+15555550121', remoteJid: '15555550121@s.whatsapp.net' })
+    const { message } = store.recordOutgoingMessage({ ownerId: owner, conversationId: conversation.id, body: 'Price list attached' })
+    const echo = { id: 'engine-echo-1', remoteJid: conversation.remoteJid, phone: conversation.phone, displayName: '', text: 'Price list attached', timestamp: Date.now(), fromMe: true }
+    const first = store.importSyncedMessages({ ownerId: owner, orgId: 'local', messages: [echo], cutoff: 0, live: true })
+    expect(first.inserted).toBe(0)
+    // 发送失败后很久才重试：状态回到 sending，回显同样跳过
+    store.markMessageFailed(owner, message.id, 'x')
+    store.markMessageSending(owner, message.id)
+    expect(store.importSyncedMessages({ ownerId: owner, orgId: 'local', messages: [{ ...echo, id: 'engine-echo-2', timestamp: Date.now() + 10 * 60_000 }], cutoff: 0, live: true }).inserted).toBe(0)
+    // 拿到引擎 id 之后，同一 id 再来也不重复；别的正文照常写入
+    store.markMessageSent(owner, message.id, 'engine-echo-2')
+    expect(store.importSyncedMessages({ ownerId: owner, orgId: 'local', messages: [{ ...echo, id: 'engine-echo-2' }], cutoff: 0, live: true }).inserted).toBe(0)
+    expect(store.importSyncedMessages({ ownerId: owner, orgId: 'local', messages: [{ ...echo, id: 'engine-3', text: 'From phone' }], cutoff: 0, live: true }).inserted).toBe(1)
+    expect(store.listMessages(owner, conversation.id).items.map((m) => m.body)).toEqual(['Price list attached', 'From phone'])
+  })
+})

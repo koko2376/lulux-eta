@@ -428,7 +428,7 @@ export interface SyncedImportResult {
  * 导入从手机同步来的消息（历史同步，或实时收到的自己从手机发出的消息）。
  *
  * - 只导入 `cutoff` 之后的消息；按引擎消息 id 去重；
- * - fromMe 的消息若与本机刚发出、还没拿到引擎 id 的同正文消息对应，跳过（避免同一条出现两次）；
+ * - fromMe 的消息若与本机正在发送（含重试）或刚发出、还没拿到引擎 id 的同正文消息对应，跳过（避免同一条出现两次）；
  * - 会话的最后一条消息只在更新时才前移；历史导入不累加未读，未读数取手机端的值；
  * - 调用方负责分批；每批在一个事务里完成。
  */
@@ -456,7 +456,8 @@ export function importSyncedMessages(input: {
   )
   const findPendingOut = db.prepare(
     `SELECT id FROM whatsapp_messages
-     WHERE conversation_id = ? AND direction = 'out' AND engine_message_id IS NULL AND body = ? AND created_at >= ?
+     WHERE conversation_id = ? AND direction = 'out' AND engine_message_id IS NULL AND body = ?
+       AND (status = 'sending' OR created_at >= ?)
      LIMIT 1`,
   )
   const insertMessage = db.prepare(
