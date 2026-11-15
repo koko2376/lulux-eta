@@ -1168,8 +1168,8 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
   ],
   TRANSLATOR_NOT_INSTALLED: [
     [
-      "未安装 WhatsApp 翻译引擎，无法翻译输入；请先安装本地离线翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
-      "The WhatsApp translation engine is not installed, so the input cannot be translated. Install a local offline translator first (see docs/WHATSAPP-TRANSLATOR.md)",
+      "没有可用的翻译：请在设置中添加并选择一个模型（翻译使用默认模型），或安装本地离线翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
+      "No translator is available: add and select a model in Settings (translation uses the default model), or install a local offline translator (see docs/WHATSAPP-TRANSLATOR.md)",
     ],
     [
       "未安装 WhatsApp 翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
@@ -1193,7 +1193,10 @@ export const ERROR_CATALOG: Record<string, readonly CatalogEntry[]> = {
   TRANSLATION_INVALID_TARGET: [
     ["不支持的目标语言：{0}", "Unsupported target language: {0}"],
   ],
-  TRANSLATION_FAILED: [["翻译失败：{0}", "Translation failed: {0}"]],
+  TRANSLATION_FAILED: [
+    ["翻译失败：{0}", "Translation failed: {0}"],
+    ["翻译失败：模型没有返回译文", "Translation failed: the model returned no translation"],
+  ],
 
   // ── shared: fragments and helper-error messages ──────────────
   // ── merged features: member lifecycle, backups, rate limits, mailbox privacy, CRM dedupe / trash ──

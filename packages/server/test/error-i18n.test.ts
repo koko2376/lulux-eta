@@ -261,6 +261,21 @@ describe("server error message catalog", () => {
     ).toBe("Order number B-2 already exists");
   });
 
+  it("translates the WhatsApp translation fallback errors", () => {
+    expect(
+      translateErrorMessage(
+        "TRANSLATOR_NOT_INSTALLED",
+        "没有可用的翻译：请在设置中添加并选择一个模型（翻译使用默认模型），或安装本地离线翻译引擎（见 docs/WHATSAPP-TRANSLATOR.md）",
+        "en",
+      ),
+    ).toBe(
+      "No translator is available: add and select a model in Settings (translation uses the default model), or install a local offline translator (see docs/WHATSAPP-TRANSLATOR.md)",
+    );
+    expect(
+      translateErrorMessage("TRANSLATION_FAILED", "翻译失败：模型没有返回译文", "en"),
+    ).toBe("Translation failed: the model returned no translation");
+  });
+
   it("leaves zh, unknown and non-Chinese messages unchanged", () => {
     expect(translateErrorMessage("NOT_FOUND", "客户不存在", "zh")).toBe(
       "客户不存在",
