@@ -260,12 +260,12 @@ async function seedDesktop() {
   // 邮箱
   const acc = await post('/api/email/accounts', {
     email: 'sales@lulux-demo.example.com',
-    displayName: 'Koko Chen',
+    displayName: 'Koko Lin',
     presetId: null,
     imap: { host: '127.0.0.1', port: Number(imapPort), secure: false },
     smtp: { host: '127.0.0.1', port: Number(smtpPort), secure: false },
     password: 'demo-app-pass',
-    signature: 'Koko Chen\nSales Manager · Mingchuan Trading Co., Ltd.\nsales@lulux-demo.example.com',
+    signature: 'Koko Lin\nSales Manager · Mingchuan Trading Co., Ltd.\nsales@lulux-demo.example.com',
   })
   await post(`/api/email/accounts/${acc.id}/sync`, { wait: true })
   const { items: mails } = await call('GET', '/api/email/messages?folder=inbox&pageSize=50')
@@ -326,7 +326,7 @@ async function seedTeam() {
     setupToken,
     email: 'koko@mingchuan.example.com',
     password: 'Owner-pass-2026',
-    name: 'Koko Chen',
+    name: 'Koko Lin',
     orgName: '明川外贸',
   })
   token = owner.token
@@ -335,7 +335,7 @@ async function seedTeam() {
     ['admin', 'Wang Lei', 'wang.lei@mingchuan.example.com'],
     ['member', 'Lin Yu', 'lin.yu@mingchuan.example.com'],
     ['member', 'Zhao Min', 'zhao.min@mingchuan.example.com'],
-    ['viewer', 'Chen Jia（财务）', 'chen.jia@mingchuan.example.com'],
+    ['viewer', 'Lin Jia（财务）', 'lin.jia@mingchuan.example.com'],
   ]
   const ownerToken = token
   const ids = []

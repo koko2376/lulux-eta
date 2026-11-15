@@ -22,7 +22,7 @@ const MAILS = [
   {
     h: 2,
     raw: `From: Hans Becker <hans.becker@nordlicht-armaturen.example.com>
-To: Koko Chen <${USER}>
+To: Koko Lin <${USER}>
 Subject: RFQ: Brass ball valves DN25 PN16 – 2,000 pcs, FOB Ningbo
 Message-ID: <rfq-2031@nordlicht-armaturen.example.com>
 Date: ${date(2)}

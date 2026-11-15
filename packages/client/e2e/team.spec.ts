@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 const TEAM = `http://localhost:${process.env.E2E_PORT_TEAMWEB || 52891}`
-const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Chen' }
+const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Lin' }
 const VIEWER = { email: 'lin.viewer@mingchuan.example.com', password: 'Viewer-pass-2026', name: 'Lin Yu' }
 let inviteCode = ''
 

@@ -92,7 +92,7 @@ beforeAll(async () => {
   ;({ db } = await import('../src/db.js'))
   const res = await api('POST', '/api/email/accounts', {
     email: USER,
-    displayName: 'Koko Chen',
+    displayName: 'Koko Lin',
     imap: { host: '127.0.0.1', port: imapPort, secure: false },
     smtp: { host: '127.0.0.1', port: smtpPort, secure: false },
     password: PASS,
@@ -193,7 +193,7 @@ describe('序列主流程', () => {
     expect(anna.subject).toBe('Ball valves for Nordic Tools AB')
     expect(anna.preview).toContain('Hi Anna,')
     const draft = (await api('GET', `/api/email/drafts/${anna.draftId}`)).json
-    expect(draft.text).toContain('Koko Chen')
+    expect(draft.text).toContain('Koko Lin')
     expect(draft.text).toContain('unsubscribe')
     expect(draft.source).toBe('sequence')
     // 联系人没有公司名：模板里的 {{company}} 留空并给出提醒

@@ -11,7 +11,7 @@ import { expect, test, type APIRequestContext, type Browser, type Page } from '@
 test.describe.configure({ mode: 'serial' })
 
 const TEAM = `http://localhost:${process.env.E2E_PORT_TEAMWEB || 52891}`
-const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Chen' }
+const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Lin' }
 const PASSWORD = 'Member-pass-2026'
 const stamp = Date.now().toString(36)
 

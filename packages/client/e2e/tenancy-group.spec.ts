@@ -13,7 +13,7 @@ test.describe.configure({ mode: 'serial' })
 
 const TEAM = `http://localhost:${process.env.E2E_PORT_TEAMWEB || 52891}`
 const CHAT_LLM = `http://127.0.0.1:${process.env.E2E_PORT_CHATLLM || 52998}/v1`
-const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Chen' }
+const OWNER = { email: 'owner@mingchuan.example.com', password: 'Owner-pass-2026', name: 'Koko Lin' }
 const PASSWORD = 'Member-pass-2026'
 const stamp = Date.now().toString(36)
 const GROUP = `欧洲线报价群 ${stamp}`
