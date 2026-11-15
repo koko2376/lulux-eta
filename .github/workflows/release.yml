@@ -104,9 +104,12 @@ jobs:
         working-directory: packages/desktop/release
         run: |
           ls -la
+          # version = semver that electron-updater compares (latest*.yml); display = file names / tag (may be 4-part, e.g. 0.1.4.1)
           version="$(node -p "require('../package.json').version")"
+          display="$(node -p "const p=require('../package.json'); p.displayVersion || p.version")"
           tag_version="${LULUX_TAG#v}"
-          [ "$version" = "$tag_version" ] || echo "::warning::packages/desktop/package.json version ($version) != tag ($tag_version); electron-updater compares the version inside latest*.yml."
+          [ "$display" = "$tag_version" ] || echo "::warning::packages/desktop/package.json displayVersion/version ($display) != tag ($tag_version)."
+          grep -q "^buildVersion: \"$display\"\$" ../electron-builder.yml || [ "$display" = "$version" ] || { echo "::error::electron-builder.yml buildVersion != $display"; exit 1; }
           for y in ${{ matrix.expect }}; do
             [ -f "$y" ] || { echo "::error::missing $y"; exit 1; }
             echo "--- $y"; cat "$y"
@@ -114,8 +117,8 @@ jobs:
           done
           if [ "${{ runner.os }}" = "macOS" ]; then
             for a in arm64 x64; do
-              for ext in dmg zip; do [ -f "LULUX-ETA-$version-mac-$a.$ext" ] || { echo "::error::missing mac $a $ext"; exit 1; }; done
-              grep -q "LULUX-ETA-$version-mac-$a.zip" latest-mac.yml || { echo "::error::latest-mac.yml lacks the $a zip"; exit 1; }
+              for ext in dmg zip; do [ -f "LULUX-ETA-$display-mac-$a.$ext" ] || { echo "::error::missing mac $a $ext"; exit 1; }; done
+              grep -q "LULUX-ETA-$display-mac-$a.zip" latest-mac.yml || { echo "::error::latest-mac.yml lacks the $a zip"; exit 1; }
             done
           fi
 

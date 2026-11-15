@@ -48,7 +48,12 @@ LULUX ETA（LULUX External Trade Agent，外贸 Agent）
 - **自带模型**：接入你自己的 OpenAI 兼容 / Anthropic 接口（DeepSeek、通义、Moonshot、本地 Ollama 等）。
 - **多种 Agent 内核**：内置 LULUX 内核，另可在设置里安装 Hermes、Claude Code、Codex、Pi、Grok、Gemini CLI、Qwen Code 等命令行 Agent（由你的电脑从 npm 公共源下载，不随本软件分发）。
 
-## 功能（v0.1.4）
+## 功能（v0.1.4.1）
+
+### 🔧 v0.1.4.1 修复
+
+- **WhatsApp 聊天记录同步**：绑定后自动导入近 3 个月的一对一聊天，手机上发出的消息也会同步（v0.1.4 已绑定的号码需在手机上移除本设备后重新绑定）。
+- **WhatsApp 翻译**：没有本地翻译包时使用设置里的默认模型翻译。
 
 ### ✨ v0.1.4 新增
 

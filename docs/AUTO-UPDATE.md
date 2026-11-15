@@ -51,6 +51,15 @@ GitHub provider 读取的是 `https://github.com/<owner>/<repo>/releases.atom` �
 4. 工作流完成后在 GitHub 上检查 draft（附件齐全、说明无误），点 **Publish release**。**draft 对用户不可见，发布之后客户端才会检测到。**
 5. 已发布的 Release 不要删除旧版本的附件：Windows 差分下载需要旧版本的 `.blockmap`。
 
+**四段式修复版（如 v0.1.4.1）**
+
+electron-updater 只认 semver，四段式版本号写不进 `version`。做法：
+
+- `packages/desktop/package.json` 的 `version` 写一个排在上一版之后、下一个正式版之前的 semver：v0.1.4.1 用 `0.1.5-0`（0.1.4 < 0.1.5-0 < 0.1.5），`latest*.yml` 里也是它，所以 0.1.4 的客户端会把它当成新版本，装好后版本相等、不会反复提示，之后的 0.1.5 / 0.2.0 都比它新；
+- 同一文件的 `displayVersion`、根 `package.json` 的 `displayVersion`、`electron-builder.yml` 的 `buildVersion` 与服务端 `APP_VERSION` 写 `0.1.4.1`：安装包文件名、Windows 文件版本、关于页、诊断包与下载页链接都显示 0.1.4.1；
+- `packages/desktop/src/version.ts` 登记 semver → 显示版本的对应关系，登记过的修复版走正式（stable）通道，不当作预发布版；
+- 已安装的 0.1.4 客户端显示的是 `latest*.yml` 里的 semver（0.1.5-0），并可能带“预发布”标记；未签名 macOS 上它的“前往下载页”指向 `tag/v0.1.5-0`（不存在），请从 Releases 页面手动下载。0.1.4.1 起的客户端按显示版本生成链接。
+
 ## 3. 客户端行为（主进程 `packages/desktop/src/updater.ts`）
 
 - 启动 30 秒后检查一次，之后每 6 小时一次（“自动检查”关闭时不定时检查，手动检查仍可用）。
@@ -61,7 +70,7 @@ GitHub provider 读取的是 `https://github.com/<owner>/<repo>/releases.atom` �
 - **失败原因归类**：`lastError.kind` 为 `network`（DNS / 连接 / 超时 / 证书）、`not-found`（源里没有 `latest*.yml`）、`forbidden`（401/403、频率限制）、`bad-feed`（yml 无法解析、sha512 校验失败）或 `other`。界面按类别给出可操作的说明（例如网络错误提示检查代理或改用镜像；自定义源 404 提示地址要指向放 yml 的目录），原始错误信息以灰字附在下面。
 - 界面没有订阅 `onState` 时，主进程用原生对话框兜底：下载完成提示“重启并安装 / 稍后”；不能自动安装的平台提示“前往下载页 / 跳过此版本 / 稍后”。每个版本每次运行最多一次。界面订阅后不再弹原生框。
 - 日志：`<userData>/logs/updater.log`（1 MB 轮转一份 `.1`）。Windows `%APPDATA%\LULUX ETA\logs\`，macOS `~/Library/Logs/LULUX ETA/`，Linux `~/.config/LULUX ETA/logs/`。
-- 设置保存在 `<userData>/updater.json`：`{ autoCheck: true, autoDownload: true, channel: 'stable'|'beta', skippedVersion: null }`。当前版本本身是预发布版（版本号带 `-`）时默认通道为 `beta`。
+- 设置保存在 `<userData>/updater.json`：`{ autoCheck: true, autoDownload: true, channel: 'stable'|'beta', skippedVersion: null }`。当前版本本身是预发布版（版本号带 `-`，`src/version.ts` 里登记的修复版除外）时默认通道为 `beta`。
 
 ### 3.1 通道（stable / beta）
 

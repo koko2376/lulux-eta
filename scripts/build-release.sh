@@ -62,7 +62,9 @@ if [[ "$CI_INSTALL" == "1" ]]; then
 fi
 [[ -d node_modules/electron-builder && -d node_modules/npm ]] || { echo "缺少依赖：先运行 npm ci --include=dev（或加 --ci）" >&2; exit 1; }
 
-VERSION="$(node -p "require('./packages/desktop/package.json').version")"
+# 产物文件名用显示版本（四段式修复版如 0.1.4.1）；latest*.yml 里是给自动更新比较用的 semver
+VERSION="$(node -p "const p=require('./packages/desktop/package.json'); p.displayVersion || p.version")"
+SEMVER="$(node -p "require('./packages/desktop/package.json').version")"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 DIRTY="$(git status --porcelain 2>/dev/null | grep -c . || true)"
 
@@ -180,7 +182,7 @@ for file in "${ARTIFACTS[@]}"; do cp -f "$file" "$OUT/"; done
   shopt -s nullglob
   files=(LULUX-ETA-"$VERSION"-*.exe LULUX-ETA-"$VERSION"-*.AppImage LULUX-ETA-"$VERSION"-*.dmg LULUX-ETA-"$VERSION"-*.zip)
   # 只保留本次版本的更新元数据（输出目录里可能有旧版本残留）
-  for y in latest*.yml; do grep -q "^version: $VERSION\$" "$y" || { echo "移除旧版本更新元数据 $y" >&2; rm -f "$y"; }; done
+  for y in latest*.yml; do grep -q "^version: $SEMVER\$" "$y" || { echo "移除旧版本更新元数据 $y" >&2; rm -f "$y"; }; done
   updates=(latest*.yml LULUX-ETA-"$VERSION"-*.blockmap)
   sha256sum "${files[@]}" "${updates[@]}" >SHA256SUMS.txt
   {

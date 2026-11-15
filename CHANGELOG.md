@@ -8,6 +8,21 @@ Each released version carries its own BSL Change Date (see `LICENSE`).
 
 ## [Unreleased]
 
+## [0.1.4.1] - 2026-11-15
+
+WhatsApp fix release: chat history from the phone now syncs after linking, and translation works without a separately installed translator. WhatsApp 修复版：绑定后同步手机上的聊天记录，翻译不再依赖另外安装的翻译包。
+
+### Fixed
+
+- **WhatsApp chat history did not sync**: after linking by QR code or pairing code, the server now links as a desktop device and requests full history; one-to-one chats from the last 90 days are imported in batches (groups, broadcasts, channels, status and protocol messages are skipped), de-duplicated by engine message id, with direction (messages sent from the phone are yours), timestamps, captions, contact names, unread counts and archive state; media appears as labels. Progress shows as “Syncing chats from the last 3 months… N messages”. Accounts linked on v0.1.4 must remove this device on the phone and link again to import history. WhatsApp 聊天记录不同步：绑定后以桌面端身份请求完整历史，分批导入近 90 天的一对一聊天（跳过群聊、广播、频道、状态与协议消息），按引擎消息 id 去重，保留方向（手机发出的为我方）、时间、说明文字、联系人名、未读与归档；媒体显示为占位标签；进度显示“正在同步近 3 个月聊天记录… N 条”。v0.1.4 已绑定的号码需在手机上移除本设备后重新绑定才能导入历史。
+- Messages sent from the phone after linking now appear in the chat, and echoes of messages sent from LULUX (including ones being retried) are not stored twice. 绑定后手机端发出的消息会同步到会话；本机发出（含重试中）的消息回显不再重复写入。
+- **WhatsApp translation always failed with `TRANSLATOR_NOT_INSTALLED`**: without a local translator package, input and incoming-message translation now use the default model from Settings → Models, with an in-process cache; if no model is configured the error says to add and select one. WhatsApp 翻译一直报“未安装”：没有本地翻译包时，输入翻译与收件翻译改用 设置 → 模型 里的默认模型（进程内缓存）；没有模型时提示去设置里添加并选择模型。
+
+### Changed
+
+- Version scheme for a four-part fix release: the desktop package's semver is `0.1.5-0` so that v0.1.4 clients see the update and later releases stay newer; the interface, file names and About page show `0.1.4.1` (see `docs/AUTO-UPDATE.md`). 四段式修复版的版本号：桌面包 semver 为 `0.1.5-0`（v0.1.4 能检测到更新、之后的版本都更新），界面、文件名与关于页显示 `0.1.4.1`（见 `docs/AUTO-UPDATE.md`）。
+- Database migration 41 (index on WhatsApp engine message ids) runs automatically on start-up. 启动时自动执行数据库迁移 41（WhatsApp 引擎消息 id 索引）。
+
 ## [0.1.4] - 2026-11-14
 
 WhatsApp arrives as a channel: link one personal account as a linked device, chat with customers in three panes with translation, and let LULUX draft replies that you review before sending. Plus a round of fixes across the mailbox, customers, drafts and settings, and a refreshed mailbox look. 新增 WhatsApp 渠道：以关联设备方式接入一个个人号，三栏会话、收发翻译，LULUX 起草回复、由你确认后发出；同时修复邮箱、客户、草稿与设置中的一批问题，并更新邮箱界面。

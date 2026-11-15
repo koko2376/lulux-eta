@@ -2,7 +2,10 @@ appId: ai.lulux.eta
 productName: LULUX ETA
 copyright: Copyright © 2026 koko
 # 产物文件名统一：LULUX-ETA-<版本>-<平台>-<架构>.<扩展名>
-artifactName: "LULUX-ETA-${version}-${os}-${arch}.${ext}"
+# 版本用 buildVersion（对外显示的版本号，四段式修复版如 0.1.4.1）；package.json 的 version 是给自动更新比较用的 semver
+# （见 src/version.ts）。每次发版把 buildVersion 改成与 tag 相同（Release 工作流会校验）。
+buildVersion: "0.1.4.1"
+artifactName: "LULUX-ETA-${buildVersion}-${os}-${arch}.${ext}"
 
 # 自动更新源（electron-updater · GitHub Releases），docs/AUTO-UPDATE.md。
 # 用户也可以在 设置 → 关于 → “更新源地址” 填一个 generic 源（公司镜像 / 国内 CDN）覆盖这里的 GitHub 源。
@@ -101,10 +104,10 @@ nsis:
   language: "2052"
   installerIcon: icon.ico
   uninstallerIcon: icon.ico
-  artifactName: "LULUX-ETA-${version}-win-${arch}-setup.${ext}"
+  artifactName: "LULUX-ETA-${buildVersion}-win-${arch}-setup.${ext}"
 
 portable:
-  artifactName: "LULUX-ETA-${version}-win-${arch}-portable.${ext}"
+  artifactName: "LULUX-ETA-${buildVersion}-win-${arch}-portable.${ext}"
 
 mac:
   icon: icon.icns
@@ -121,7 +124,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
-  artifactName: "LULUX-ETA-${version}-mac-${arch}.${ext}"
+  artifactName: "LULUX-ETA-${buildVersion}-mac-${arch}.${ext}"
 
 linux:
   icon: icons
@@ -132,4 +135,4 @@ linux:
     - AppImage
 
 appImage:
-  artifactName: "LULUX-ETA-${version}-linux-${arch}.${ext}"
+  artifactName: "LULUX-ETA-${buildVersion}-linux-${arch}.${ext}"

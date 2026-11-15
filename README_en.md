@@ -50,7 +50,12 @@ Export sales reps spend their day jumping between inquiries, customer records, q
 - **Bring your own model:** any OpenAI-compatible or Anthropic API (DeepSeek, Qwen, Moonshot, local Ollama, and more).
 - **Multiple agent kernels:** the built-in LULUX kernel, plus CLI agents you can install from Settings — Hermes, Claude Code, Codex, Pi, Grok, Gemini CLI, Qwen Code. They are downloaded by your machine from public npm registries and are not bundled with this software.
 
-## Features (v0.1.4)
+## Features (v0.1.4.1)
+
+### 🔧 Fixed in v0.1.4.1
+
+- **WhatsApp chat history sync**: chats from the last 3 months are imported after linking, and messages sent from the phone sync too (accounts linked on v0.1.4 must remove this device on the phone and link again).
+- **WhatsApp translation**: without a local translator, the default model from Settings translates.
 
 ### ✨ New in v0.1.4
 

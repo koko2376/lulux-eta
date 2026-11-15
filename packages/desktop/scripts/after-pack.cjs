@@ -38,7 +38,9 @@ module.exports = async function afterPack(context) {
   const info = version ?? ResEdit.Resource.VersionInfo.createEmpty()
   const langs = info.getAllLanguagesForStringValues()
   const lang = langs[0] ?? { lang: LANG_EN_US, codepage: CODEPAGE_UNICODE }
-  const numeric = appInfo.version.split(/[.+-]/).slice(0, 3).map((part) => Number.parseInt(part, 10) || 0)
+  // 显示版本（buildVersion，四段式修复版如 0.1.4.1）；没有时用 package.json 的 semver
+  const shown = /^\d+(\.\d+){1,3}$/.test(String(appInfo.buildVersion ?? '')) ? String(appInfo.buildVersion) : appInfo.version
+  const numeric = shown.split(/[.+-]/).slice(0, 4).map((part) => Number.parseInt(part, 10) || 0)
   while (numeric.length < 4) numeric.push(0)
   info.setFileVersion(numeric[0], numeric[1], numeric[2], numeric[3], lang.lang)
   info.setProductVersion(numeric[0], numeric[1], numeric[2], numeric[3], lang.lang)
@@ -49,8 +51,8 @@ module.exports = async function afterPack(context) {
     LegalCopyright: appInfo.copyright,
     InternalName: appInfo.productFilename,
     OriginalFilename: `${appInfo.productFilename}.exe`,
-    FileVersion: appInfo.version,
-    ProductVersion: appInfo.version,
+    FileVersion: shown,
+    ProductVersion: shown,
   })
   info.outputToResourceEntries(resource.entries)
 

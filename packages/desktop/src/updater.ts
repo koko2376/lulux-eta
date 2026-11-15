@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSy
 import { dirname, join, resolve } from 'node:path'
 import { tr } from './menu'
 import { readJsonFile, writeJsonFile } from './json-file'
+import { displayVersion, isPrereleaseVersion } from './version'
 import { classifyUpdateError, feedProtocolAllowed, normalizeFeedUrl, type UpdateErrorKind } from './update-source'
 import type { AppUpdater, ProgressInfo, UpdateInfo } from 'electron-updater'
 
@@ -137,7 +138,7 @@ function settingsFile(): string {
 }
 
 function defaultChannel(): UpdateChannel {
-  return /-/.test(app.getVersion()) ? 'beta' : 'stable'
+  return isPrereleaseVersion(app.getVersion()) ? 'beta' : 'stable'
 }
 
 function readSettings(): UpdaterSettings {
@@ -239,7 +240,7 @@ function downloadPageFor(source: Source | null, version?: string): string | null
   if (!source) return null
   if (source.provider === 'github') {
     const base = `https://github.com/${source.owner}/${source.repo}/releases`
-    return version ? `${base}/tag/v${version}` : `${base}/latest`
+    return version ? `${base}/tag/v${displayVersion(version)}` : `${base}/latest`
   }
   return (!source.custom && process.env.LULUX_UPDATE_PAGE?.trim()) || source.url
 }
@@ -302,7 +303,7 @@ class UpdateController {
   private installing = false
   private state: UpdaterState = {
     status: 'idle',
-    currentVersion: app.getVersion(),
+    currentVersion: displayVersion(app.getVersion()),
     platform: process.platform,
     arch: process.arch,
     canCheck: false,
@@ -455,11 +456,11 @@ class UpdateController {
       downloadPage: downloadPageFor(this.source, version),
       progress: null,
       available: {
-        version,
+        version: displayVersion(version),
         releaseName: info.releaseName ?? null,
         releaseDate: info.releaseDate ?? null,
         notes: notesToText(info.releaseNotes),
-        prerelease: /-/.test(version),
+        prerelease: isPrereleaseVersion(version),
       },
     })
     const skipped = !this.interactive && this.settings.skippedVersion === version
@@ -547,7 +548,7 @@ class UpdateController {
     const options: Electron.MessageBoxOptions = {
       type: 'info',
       title: 'LULUX ETA',
-      message: tr('updDownloaded', version),
+      message: tr('updDownloaded', displayVersion(version)),
       detail: tr('updDownloadedDetail'),
       buttons: [tr('later'), tr('restartInstall')],
       defaultId: 1,
@@ -573,7 +574,7 @@ class UpdateController {
     const options: Electron.MessageBoxOptions = {
       type: 'info',
       title: 'LULUX ETA',
-      message: tr('updFound', version),
+      message: tr('updFound', displayVersion(version)),
       detail: tr('updGoDownload', why),
       buttons: [tr('later'), tr('skipVersion'), tr('openDownload')],
       defaultId: 2,

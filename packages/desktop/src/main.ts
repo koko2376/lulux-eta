@@ -52,6 +52,7 @@ import {
   showTrayHint,
 } from './tray'
 import { initUpdater, markInstallFailed } from './updater'
+import { displayVersion } from './version'
 
 const APP_NAME = 'LULUX ETA'
 const EXTERNAL_URL = process.env.LULUX_ETA_URL?.trim() || ''
@@ -962,7 +963,8 @@ function registerDesktopControls(): void {
       days: 3,
       info: {
         app: APP_NAME,
-        version: app.getVersion(),
+        version: displayVersion(app.getVersion()),
+        semver: app.getVersion(),
         packaged: app.isPackaged,
         electron: process.versions.electron,
         chrome: process.versions.chrome,

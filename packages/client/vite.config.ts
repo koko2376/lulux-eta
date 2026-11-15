@@ -26,6 +26,7 @@ function readApiToken(): string {
 const apiTarget = process.env.LULUX_API_TARGET || 'http://127.0.0.1:51789'
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
   version: string
+  displayVersion?: string
 }
 
 /**
@@ -48,7 +49,8 @@ function devCsp(): Plugin {
 export default defineConfig({
   plugins: [vue(), devCsp()],
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    // 显示版本：四段式修复版（0.1.4.1）不是 semver，单独写在 displayVersion
+    __APP_VERSION__: JSON.stringify(pkg.displayVersion ?? pkg.version),
     // vue-i18n：只用组合式 API；文案由 src/i18n 的自定义编译器处理，运行时不需要消息编译器（也不需要 eval，符合 CSP）
     __VUE_I18N_FULL_INSTALL__: true,
     __VUE_I18N_LEGACY_API__: false,
