@@ -87,6 +87,8 @@ export interface WhatsAppStatus {
   reconnect: WhatsAppReconnectInfo | null
   error: WhatsAppErrorInfo | null
   risk: WhatsAppRiskInfo
+  /** 绑定后从手机导入近 90 天聊天记录的进度；没有进行过同步时为 null */
+  history: WhatsAppHistorySync | null
   limits: {
     linkedDevices: 4
     phoneOfflineDays: 14
@@ -98,6 +100,37 @@ export interface WhatsAppStatus {
 export interface WhatsAppStartInput {
   mode: WhatsAppLinkMode
   phone?: string
+}
+
+/** 历史同步只导入最近这么多天的消息 */
+export const WA_HISTORY_DAYS = 90
+
+export interface WhatsAppHistorySync {
+  state: 'syncing' | 'done'
+  /** 已导入的消息条数（去重后新写入的） */
+  imported: number
+  /** 手机端报告的进度（0-100），未知时为 null */
+  progress: number | null
+  days: number
+  startedAt: number
+  finishedAt: number | null
+}
+
+/** 联系人名字：通讯录名（contact）优先于对方自己设置的昵称（push） */
+export interface WhatsAppContactName {
+  remoteJid: string
+  phone: string
+  name: string
+  source: 'contact' | 'push'
+}
+
+/** 历史同步的一批数据（引擎已过滤群聊 / 广播与 90 天以外的消息） */
+export interface WhatsAppHistoryBatch {
+  messages: WhatsAppIncomingMessage[]
+  contacts: WhatsAppContactName[]
+  chats: Array<{ remoteJid: string; phone: string; name?: string; unreadCount?: number; archived?: boolean }>
+  isLatest: boolean
+  progress: number | null
 }
 
 /** 引擎事件。真实适配器与测试替身都只通过这组事件驱动状态机。 */
@@ -115,6 +148,8 @@ export type WhatsAppEngineEvent =
     }
   | { type: 'error'; code: string; message: string }
   | { type: 'message'; message: WhatsAppIncomingMessage }
+  | { type: 'history'; batch: WhatsAppHistoryBatch }
+  | { type: 'contacts'; contacts: WhatsAppContactName[] }
 
 /** 会话与消息（契约 §12.3）。 */
 export type WhatsAppMessageDirection = 'in' | 'out'
@@ -174,6 +209,8 @@ export interface WhatsAppIncomingMessage {
   displayName: string
   text: string
   timestamp: number
+  /** 自己从手机或其他设备发出的消息（方向 out） */
+  fromMe?: boolean
 }
 
 export interface WhatsAppOutgoingMessage {

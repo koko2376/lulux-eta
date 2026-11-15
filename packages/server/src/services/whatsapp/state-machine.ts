@@ -12,6 +12,7 @@ import {
   type WhatsAppReconnectInfo,
   type WhatsAppStatus,
   type WhatsAppEngineInfo,
+  type WhatsAppHistorySync,
 } from './types.js'
 
 /** 状态机只保存内部阶段与数据；对外快照按需求归并为四态连接。 */
@@ -26,6 +27,7 @@ export class WhatsAppStateMachine {
   private error: WhatsAppErrorInfo | null = null
   private reconnect: WhatsAppReconnectInfo | null = null
   private qrRefreshCount = 0
+  private history: WhatsAppHistorySync | null = null
   private updatedAt = Date.now()
   private engine: WhatsAppEngineInfo = {
     id: 'baileys',
@@ -141,6 +143,13 @@ export class WhatsAppStateMachine {
     this.pairing = null
     this.reconnect = null
     this.mode = null
+    this.history = null
+    this.updatedAt = now
+  }
+
+  /** 历史同步进度（服务层按批次更新） */
+  setHistory(history: WhatsAppHistorySync | null, now = Date.now()): void {
+    this.history = history ? { ...history } : null
     this.updatedAt = now
   }
 
@@ -158,6 +167,7 @@ export class WhatsAppStateMachine {
     this.error = null
     this.reconnect = null
     this.qrRefreshCount = 0
+    this.history = null
     this.updatedAt = now
   }
 
@@ -204,6 +214,7 @@ export class WhatsAppStateMachine {
       reconnect: this.reconnect,
       error,
       risk,
+      history: this.history ? { ...this.history } : null,
       limits: { linkedDevices: 4, phoneOfflineDays: 14, deviceIdleDays: 30 },
       updatedAt: this.updatedAt,
     }

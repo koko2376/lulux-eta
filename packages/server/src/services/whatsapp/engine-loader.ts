@@ -115,6 +115,8 @@ export function inspectEngine(): WhatsAppEngineInfo {
 export interface BaileysModules {
   makeWASocket: (config: Record<string, unknown>) => any
   useMultiFileAuthState: (dir: string) => Promise<{ state: any; saveCreds: () => Promise<void> }>
+  /** 设备标识预设；完整历史同步需要桌面端标识 */
+  Browsers?: { macOS?: (browser: string) => [string, string, string] }
   DisconnectReason: Record<string, number> | undefined
   fetchLatestBaileysVersion?: () => Promise<{ version: number[]; isLatest: boolean }>
   toDataUrl: (text: string, options?: Record<string, unknown>) => Promise<string>
@@ -145,6 +147,7 @@ export async function loadBaileysModules(dir: string): Promise<BaileysModules> {
     return {
       makeWASocket,
       useMultiFileAuthState,
+      Browsers: baileys.Browsers ?? root.Browsers,
       DisconnectReason: baileys.DisconnectReason ?? root.DisconnectReason,
       fetchLatestBaileysVersion: baileys.fetchLatestBaileysVersion ?? root.fetchLatestBaileysVersion,
       toDataUrl: (text, options) => qr.toDataURL(text, options),

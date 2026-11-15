@@ -4748,6 +4748,21 @@
     "draftUse": "使用并编辑",
     "draftDismiss": "丢弃",
     "draftDismissed": "已丢弃草稿",
-    "profileWebsite": "网站"
+    "profileWebsite": "网站",
+    "historySyncing": "正在同步近 3 个月聊天记录… {count} 条",
+    "historySyncingProgress": "正在同步近 3 个月聊天记录… {count} 条（{progress}%）",
+    "historyDone": "已同步近 3 个月聊天记录，共 {count} 条",
+    "mediaImage": "图片",
+    "mediaVideo": "视频",
+    "mediaGif": "动图",
+    "mediaVoice": "语音",
+    "mediaAudio": "音频",
+    "mediaDocument": "文件",
+    "mediaSticker": "贴纸",
+    "mediaLocation": "位置",
+    "mediaLiveLocation": "实时位置",
+    "mediaContact": "名片",
+    "mediaPoll": "投票",
+    "mediaUnsupported": "暂不支持的消息"
   }
 }

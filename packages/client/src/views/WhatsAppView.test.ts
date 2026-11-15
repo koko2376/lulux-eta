@@ -522,6 +522,40 @@ describe('WhatsAppView 会话页', () => {
     expect(wrapper.find('[data-testid="whatsapp-unread"]').exists()).toBe(false)
   })
 
+  it('历史同步：会话列表上方显示进度，完成后重拉列表；非文本消息按界面语言显示', async () => {
+    const now = Date.now()
+    apiMock.listWhatsAppConversations.mockResolvedValue({
+      items: [conversation({ lastMessagePreview: '[Image] our logo', lastMessageDirection: 'in' })],
+      total: 1,
+      hasMore: false,
+    })
+    const history = { state: 'syncing' as const, imported: 128, progress: 40, days: 90, startedAt: now, finishedAt: null }
+    setWhatsAppStatus(connected({ history }))
+    wrapper = await mountPage('/whatsapp/chats')
+    await flushPromises()
+
+    expect(byTestId('whatsapp-history-sync')?.textContent).toContain('正在同步近 3 个月聊天记录… 128 条（40%）')
+    const row = wrapper.find('[data-testid="whatsapp-conversation"]')
+    expect(row.text()).toContain('[图片] our logo')
+
+    apiMock.getWhatsAppMessages.mockResolvedValue({
+      items: [message({ body: '[Document: PI-001.pdf] see PI' }), message({ id: 'msg-2', body: '[Voice message]' })],
+      hasMore: false,
+      nextCursor: null,
+    })
+    await row.trigger('click')
+    await flushPromises()
+    const bubbles = wrapper.findAll('[data-testid="whatsapp-message"]')
+    expect(bubbles[0]!.text()).toContain('[文件: PI-001.pdf] see PI')
+    expect(bubbles[1]!.text()).toContain('[语音]')
+
+    const calls = apiMock.listWhatsAppConversations.mock.calls.length
+    setWhatsAppStatus(connected({ history: { ...history, state: 'done', imported: 300, progress: 100, finishedAt: now } }))
+    await flushPromises()
+    expect(byTestId('whatsapp-history-sync')).toBeNull()
+    expect(apiMock.listWhatsAppConversations.mock.calls.length).toBe(calls + 1)
+  })
+
   it('在渠道页期间错过入站事件时，切到会话页会补拉空会话列表', async () => {
     // 连接到服务端会让 store 预取一次（此时还没有会话）；随后客户入站消息到得太早，
     // 会话页尚未订阅事件。切到会话页时必须补拉，不能一直停在空列表。

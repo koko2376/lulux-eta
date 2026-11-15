@@ -1,16 +1,16 @@
 import { AppError } from '../../errors.js'
 import { logger } from '../logger.js'
-import { APP_VERSION } from '../../config.js'
 import { dirname } from 'node:path'
 import { chmodTree } from './credential-store.js'
 import { loadBaileysModules, type BaileysModules } from './engine-loader.js'
-import type {
-  WhatsAppEngineAdapter,
-  WhatsAppEngineListener,
-  WhatsAppIncomingMessage,
-  WhatsAppOutgoingMessage,
-  WhatsAppSendResult,
-  WhatsAppStartOptions,
+import { JidResolver, mapContacts, mapHistorySet, mapRawMessage, timestampOf } from './message-mapper.js'
+import {
+  WA_HISTORY_DAYS,
+  type WhatsAppEngineAdapter,
+  type WhatsAppEngineListener,
+  type WhatsAppOutgoingMessage,
+  type WhatsAppSendResult,
+  type WhatsAppStartOptions,
 } from './types.js'
 
 /**
@@ -24,29 +24,16 @@ import type {
  *
  * passkey 二次确认（调研 §2.3 / §4.4）在 2026-11 的 Baileys 发布版仍可能卡住；
  * 适配器不伪造连接成功，只如实把 close / error 交给状态机。
+ *
+ * 历史同步：以桌面端身份请求完整历史（syncFullHistory + 桌面设备标识），
+ * `messaging-history.set` 按批交给服务层，只保留近 WA_HISTORY_DAYS 天的一对一聊天。
  */
-/** Baileys 的 messageTimestamp 可能是秒级 number 或 Long；统一成毫秒 */
-function timestampOf(value: unknown): number {
-  const raw = typeof value === 'object' && value !== null && 'toNumber' in value
-    ? Number((value as { toNumber: () => number }).toNumber())
-    : Number(value)
-  if (!Number.isFinite(raw) || raw <= 0) return Date.now()
-  return raw < 1_000_000_000_000 ? raw * 1000 : raw
-}
 
-function textOf(message: any): string {
-  if (!message || typeof message !== 'object') return ''
-  if (typeof message.conversation === 'string') return message.conversation
-  const extended = message.extendedTextMessage?.text
-  if (typeof extended === 'string') return extended
-  return ''
+/** 完整历史同步要求以桌面端身份关联 */
+function desktopBrowser(modules: BaileysModules): [string, string, string] {
+  const preset = modules.Browsers?.macOS?.('Desktop')
+  return Array.isArray(preset) && preset.length === 3 ? preset : ['Mac OS', 'Desktop', '14.4.1']
 }
-
-function phoneOf(jid: string): string {
-  const user = jid.split('@')[0]?.split(':')[0] ?? ''
-  return user ? `+${user.replace(/\D/g, '')}` : ''
-}
-
 export class BaileysAdapter implements WhatsAppEngineAdapter {
   readonly id = 'baileys'
   private readonly listeners = new Set<WhatsAppEngineListener>()
@@ -96,8 +83,9 @@ export class BaileysAdapter implements WhatsAppEngineAdapter {
     const socket = modules.makeWASocket({
       auth: state,
       printQRInTerminal: false,
-      browser: ['LULUX ETA', 'Chrome', APP_VERSION],
-      syncFullHistory: false,
+      browser: desktopBrowser(modules),
+      syncFullHistory: true,
+      shouldSyncHistoryMessage: () => true,
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       ...(options.agent ? { agent: options.agent, fetchAgent: options.agent } : {}),
@@ -174,31 +162,43 @@ export class BaileysAdapter implements WhatsAppEngineAdapter {
       }
     })
 
-    // 入站消息：只上报通知类 upsert，跳过自己发的、群聊、广播与空文本。
-    // 去重交给存储层按 engine message id 处理（重连补历史不会重复计数）。
+    const resolver = new JidResolver()
+    const cutoff = (): number => Date.now() - WA_HISTORY_DAYS * 86_400_000
+
+    // 实时消息：通知类与补发类 upsert 都处理（含自己从手机发出的），跳过群聊、广播与协议消息。
+    // 去重交给存储层按引擎消息 id 处理（重连补历史不会重复计数）。
     socket.ev.on('messages.upsert', (payload: any) => {
       if (this.stopped || generation !== this.generation) return
       if (payload?.type && payload.type !== 'notify' && payload.type !== 'append') return
       for (const raw of payload?.messages ?? []) {
-        const key = raw?.key ?? {}
-        if (key.fromMe) continue
-        const remoteJid = String(key.remoteJid ?? '')
-        if (!remoteJid || remoteJid === 'status@broadcast') continue
-        if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.endsWith('@newsletter')) continue
-        const text = textOf(raw?.message)
-        if (!text.trim()) continue
-        const phone = phoneOf(remoteJid)
-        const incoming: WhatsAppIncomingMessage = {
-          id: String(key.id ?? ''),
-          remoteJid,
-          phone,
-          displayName: String(raw?.pushName ?? '').trim() || phone,
-          text,
-          timestamp: timestampOf(raw?.messageTimestamp),
-        }
-        this.emit({ type: 'message', message: incoming })
+        const message = mapRawMessage(raw, resolver)
+        if (!message) continue
+        // 补发类（离线期间的消息）同样只要近 90 天
+        if (payload?.type === 'append' && message.timestamp < cutoff()) continue
+        this.emit({ type: 'message', message })
       }
     })
+
+    // 历史同步：绑定后手机分批推送会话、联系人与消息
+    socket.ev.on('messaging-history.set', (data: any) => {
+      if (this.stopped || generation !== this.generation) return
+      try {
+        const batch = mapHistorySet(data, cutoff(), resolver)
+        this.emit({ type: 'history', batch })
+      } catch (error) {
+        logger.warn('whatsapp history batch failed', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })
+
+    const onContacts = (contacts: unknown): void => {
+      if (this.stopped || generation !== this.generation) return
+      const mapped = mapContacts(contacts, resolver)
+      if (mapped.length) this.emit({ type: 'contacts', contacts: mapped })
+    }
+    socket.ev.on('contacts.upsert', onContacts)
+    socket.ev.on('contacts.update', onContacts)
 
     // 配对码模式：没有既有凭据时立刻向 WhatsApp 申请 8 位码；失败原样抛给服务层，
     // 不允许静默退回二维码。已有凭据时直接重连，不申请新码。

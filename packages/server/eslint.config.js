@@ -20,7 +20,12 @@ export default tseslint.config(
   },
   {
     // 动态加载的 WhatsApp 引擎没有可用的类型声明
-    files: ['src/services/whatsapp/baileys-adapter.ts', 'src/services/whatsapp/engine-loader.ts'],
+    files: [
+      'src/services/whatsapp/baileys-adapter.ts',
+      'src/services/whatsapp/engine-loader.ts',
+      'src/services/whatsapp/message-mapper.ts',
+      'src/services/whatsapp/fake-history.ts',
+    ],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
   {

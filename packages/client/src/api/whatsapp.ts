@@ -64,6 +64,15 @@ export interface WhatsAppRiskInfo {
   version: string | null
 }
 
+export interface WhatsAppHistorySync {
+  state: 'syncing' | 'done'
+  imported: number
+  progress: number | null
+  days: number
+  startedAt: number
+  finishedAt: number | null
+}
+
 export interface WhatsAppStatus {
   accountId: string
   phase: WhatsAppPhase
@@ -78,6 +87,8 @@ export interface WhatsAppStatus {
   risk: WhatsAppRiskInfo
   limits: { linkedDevices: number; phoneOfflineDays: number; deviceIdleDays: number }
   updatedAt: number
+  /** 绑定后从手机导入近 90 天聊天记录的进度；没有同步过时为 null */
+  history?: WhatsAppHistorySync | null
 }
 
 export type WhatsAppMessageDirection = 'in' | 'out'

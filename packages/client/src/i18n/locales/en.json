@@ -4748,6 +4748,21 @@
     "draftUse": "Use and edit",
     "draftDismiss": "Discard",
     "draftDismissed": "Draft discarded",
-    "profileWebsite": "Website"
+    "profileWebsite": "Website",
+    "historySyncing": "Syncing chats from the last 3 months… {count} messages",
+    "historySyncingProgress": "Syncing chats from the last 3 months… {count} messages ({progress}%)",
+    "historyDone": "Synced chats from the last 3 months: {count} messages",
+    "mediaImage": "Image",
+    "mediaVideo": "Video",
+    "mediaGif": "GIF",
+    "mediaVoice": "Voice message",
+    "mediaAudio": "Audio",
+    "mediaDocument": "Document",
+    "mediaSticker": "Sticker",
+    "mediaLocation": "Location",
+    "mediaLiveLocation": "Live location",
+    "mediaContact": "Contact card",
+    "mediaPoll": "Poll",
+    "mediaUnsupported": "Unsupported message"
   }
 }

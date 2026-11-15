@@ -7,6 +7,9 @@ import type {
   WhatsAppSendResult,
   WhatsAppStartOptions,
 } from './types.js'
+import { WA_HISTORY_DAYS } from './types.js'
+import { fakeHistoryPayloads } from './fake-history.js'
+import { JidResolver, mapHistorySet, mapRawMessage } from './message-mapper.js'
 
 /**
  * 可注入的假引擎：只用于单测与浏览器验证。
@@ -17,6 +20,7 @@ import type {
  * - `LULUX_WHATSAPP_FAKE_INBOUND_AFTER_MS`：连接后多少毫秒模拟一条客户入站消息（只发一次）；
  * - `LULUX_WHATSAPP_FAKE_REPLY_AFTER_MS`：发出文本后多少毫秒模拟对方回复（默认 120ms，发 0 立即）；
  * - `LULUX_WHATSAPP_FAKE_SEND_FAIL_TIMES`：前 N 次发送模拟失败（验证失败态与重试）；
+ * - `LULUX_WHATSAPP_FAKE_HISTORY_AFTER_MS`：连接后多少毫秒开始模拟历史同步（两批 + 一条自己从手机发出的消息）；
  * - `LULUX_WHATSAPP_FAKE_QR_FIXTURES=1`：使用真实可扫描的 QR 图片（默认就是）。
  *
  * 二维码图片为预生成的 PNG data URL（内容指向 example.invalid，不可用于真实绑定），
@@ -124,6 +128,8 @@ export class FakeWhatsAppAdapter implements WhatsAppEngineAdapter {
         })
       }, inboundAfter)
     }
+    const historyAfter = envMs('LULUX_WHATSAPP_FAKE_HISTORY_AFTER_MS')
+    if (historyAfter !== null) this.later(() => this.emitHistory(), historyAfter)
     const disconnectAfter = envMs('LULUX_WHATSAPP_FAKE_DISCONNECT_AFTER_MS')
     if (disconnectAfter !== null) {
       this.later(() => {
@@ -137,6 +143,21 @@ export class FakeWhatsAppAdapter implements WhatsAppEngineAdapter {
         })
       }, disconnectAfter)
     }
+  }
+
+  /** 历史同步样本：与真实引擎同一套映射（原始形状 → 批次） */
+  private emitHistory(): void {
+    const resolver = new JidResolver()
+    const now = Date.now()
+    const cutoff = now - WA_HISTORY_DAYS * 86_400_000
+    const { batches, ownMessage } = fakeHistoryPayloads(now)
+    batches.forEach((payload, index) => {
+      this.later(() => this.emit({ type: 'history', batch: mapHistorySet(payload, cutoff, resolver, now) }), index * 10)
+    })
+    this.later(() => {
+      const message = mapRawMessage(ownMessage, resolver, now)
+      if (message) this.emit({ type: 'message', message })
+    }, batches.length * 10 + 10)
   }
 
   async sendText(message: WhatsAppOutgoingMessage): Promise<WhatsAppSendResult> {

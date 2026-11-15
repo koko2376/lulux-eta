@@ -1,6 +1,7 @@
 import { db } from '../../db.js'
 import { newId } from '../../utils/id.js'
 import type {
+  WhatsAppContactName,
   WhatsAppConversation,
   WhatsAppConversationCounts,
   WhatsAppConversationFilter,
@@ -398,6 +399,194 @@ export function recordIncomingMessage(
     message: getMessage(input.ownerId, messageId)!,
     duplicate: false,
   }
+}
+
+/** 号码是否只是占位名（空 / 等于号码），可以被更好的名字替换 */
+function isPlaceholderName(name: string, phone: string): boolean {
+  const trimmed = name.trim()
+  if (!trimmed || trimmed === phone) return true
+  // 纯号码写法（带 + 空格 横线 括号）也算占位
+  return /^[+\d\s()-]+$/.test(trimmed) && trimmed.replace(/\D/g, '') === phone.replace(/\D/g, '')
+}
+
+export interface SyncedChatState {
+  name?: string
+  unreadCount?: number
+  archived?: boolean
+}
+
+export interface SyncedImportResult {
+  /** 新写入的消息条数 */
+  inserted: number
+  /** 新写入的消息（只在 collect=true 时返回，用于实时推送） */
+  messages: WhatsAppMessage[]
+  /** 被修改过的会话 id */
+  conversationIds: string[]
+}
+
+/**
+ * 导入从手机同步来的消息（历史同步，或实时收到的自己从手机发出的消息）。
+ *
+ * - 只导入 `cutoff` 之后的消息；按引擎消息 id 去重；
+ * - fromMe 的消息若与本机刚发出、还没拿到引擎 id 的同正文消息对应，跳过（避免同一条出现两次）；
+ * - 会话的最后一条消息只在更新时才前移；历史导入不累加未读，未读数取手机端的值；
+ * - 调用方负责分批；每批在一个事务里完成。
+ */
+export function importSyncedMessages(input: {
+  ownerId: string
+  orgId: string
+  messages: WhatsAppIncomingMessage[]
+  cutoff: number
+  chats?: Map<string, SyncedChatState>
+  /** 实时消息：入站累加未读并取消归档；自己发出的消息清零未读 */
+  live?: boolean
+  collect?: boolean
+}): SyncedImportResult {
+  const { ownerId, orgId } = input
+  const now = Date.now()
+  const conversations = new Map<string, ConversationRow>()
+  const latest = new Map<string, { at: number; preview: string; direction: WhatsAppMessageDirection }>()
+  const unreadAdd = new Map<string, number>()
+  const inserted: string[] = []
+  const touched = new Set<string>()
+
+  const findByRemote = db.prepare('SELECT * FROM whatsapp_conversations WHERE owner_id = ? AND remote_jid = ?')
+  const findDuplicate = db.prepare(
+    'SELECT 1 FROM whatsapp_messages WHERE conversation_id = ? AND engine_message_id = ? LIMIT 1',
+  )
+  const findPendingOut = db.prepare(
+    `SELECT id FROM whatsapp_messages
+     WHERE conversation_id = ? AND direction = 'out' AND engine_message_id IS NULL AND body = ? AND created_at >= ?
+     LIMIT 1`,
+  )
+  const insertMessage = db.prepare(
+    `INSERT INTO whatsapp_messages
+       (id, conversation_id, owner_id, direction, type, body, status, failure_reason, engine_message_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'text', ?, ?, NULL, ?, ?, ?)`,
+  )
+  const insertConversation = db.prepare(
+    `INSERT INTO whatsapp_conversations
+       (id, owner_id, org_id, remote_jid, phone, display_name, customer_id,
+        last_message_at, last_message_preview, last_message_direction, unread_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, '', NULL, 0, ?, ?)`,
+  )
+  const renameConversation = db.prepare('UPDATE whatsapp_conversations SET display_name = ?, updated_at = ? WHERE id = ?')
+
+  const conversationFor = (message: WhatsAppIncomingMessage): ConversationRow => {
+    const cached = conversations.get(message.remoteJid)
+    if (cached) return cached
+    let row = findByRemote.get(ownerId, message.remoteJid) as unknown as ConversationRow | undefined
+    const chatName = input.chats?.get(message.remoteJid)?.name?.trim()
+    const name = chatName || (message.fromMe ? '' : message.displayName.trim())
+    if (!row) {
+      const id = newId('wac')
+      insertConversation.run(id, ownerId, orgId, message.remoteJid, message.phone, name && name !== message.phone ? name : '', now, now)
+      row = findByRemote.get(ownerId, message.remoteJid) as unknown as ConversationRow
+    } else if (name && name !== message.phone && isPlaceholderName(row.display_name, row.phone)) {
+      renameConversation.run(name, now, row.id)
+      row = { ...row, display_name: name }
+    }
+    conversations.set(message.remoteJid, row)
+    return row
+  }
+
+  db.exec('BEGIN')
+  try {
+    for (const message of input.messages) {
+      const createdAt = Number.isFinite(message.timestamp) && message.timestamp > 0 ? message.timestamp : now
+      if (createdAt < input.cutoff) continue
+      const body = message.text
+      if (!message.remoteJid || !body.trim()) continue
+      const conversation = conversationFor(message)
+      if (message.id && findDuplicate.get(conversation.id, message.id)) continue
+      if (message.fromMe && findPendingOut.get(conversation.id, body, createdAt - 120_000)) continue
+      const direction: WhatsAppMessageDirection = message.fromMe ? 'out' : 'in'
+      const id = newId('wam')
+      insertMessage.run(id, conversation.id, ownerId, direction, body, direction === 'out' ? 'sent' : 'received', message.id || null, createdAt, now)
+      inserted.push(id)
+      touched.add(conversation.id)
+      const current = latest.get(conversation.id)
+      if (!current || createdAt >= current.at) latest.set(conversation.id, { at: createdAt, preview: preview(body), direction })
+      if (input.live && direction === 'in') unreadAdd.set(conversation.id, (unreadAdd.get(conversation.id) ?? 0) + 1)
+    }
+
+    const updateLast = db.prepare(
+      `UPDATE whatsapp_conversations
+       SET last_message_at = ?, last_message_preview = ?, last_message_direction = ?, updated_at = ?
+       WHERE id = ? AND owner_id = ? AND COALESCE(last_message_at, 0) <= ?`,
+    )
+    for (const [conversationId, last] of latest) {
+      updateLast.run(last.at, last.preview, last.direction, now, conversationId, ownerId, last.at)
+    }
+    if (input.live) {
+      for (const [conversationId, last] of latest) {
+        if (last.direction === 'out') {
+          db.prepare('UPDATE whatsapp_conversations SET unread_count = 0, updated_at = ? WHERE id = ? AND owner_id = ?').run(now, conversationId, ownerId)
+        }
+      }
+      for (const [conversationId, count] of unreadAdd) {
+        db.prepare(
+          'UPDATE whatsapp_conversations SET unread_count = unread_count + ?, archived_at = NULL, updated_at = ? WHERE id = ? AND owner_id = ?',
+        ).run(count, now, conversationId, ownerId)
+      }
+    } else if (input.chats) {
+      // 历史：未读 / 归档跟手机一致（只对本批涉及的会话）
+      for (const [remoteJid, row] of conversations) {
+        const chat = input.chats.get(remoteJid)
+        if (!chat) continue
+        if (typeof chat.unreadCount === 'number' && chat.unreadCount > 0) {
+          db.prepare('UPDATE whatsapp_conversations SET unread_count = MAX(unread_count, ?), updated_at = ? WHERE id = ?').run(
+            Math.min(chat.unreadCount, 9999),
+            now,
+            row.id,
+          )
+          touched.add(row.id)
+        }
+        if (chat.archived && row.archived_at == null) {
+          db.prepare('UPDATE whatsapp_conversations SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, row.id)
+          touched.add(row.id)
+        }
+      }
+    }
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  return {
+    inserted: inserted.length,
+    messages: input.collect ? inserted.map((id) => getMessage(ownerId, id)!).filter(Boolean) : [],
+    conversationIds: [...touched],
+  }
+}
+
+/**
+ * 用联系人名字补全会话名：通讯录名覆盖昵称；昵称只填空名字或纯号码。
+ * 只更新已存在的会话，不为没有消息的联系人建会话。返回被改名的会话 id。
+ */
+export function applyContactNames(ownerId: string, contacts: WhatsAppContactName[]): string[] {
+  if (!contacts.length) return []
+  const now = Date.now()
+  const changed: string[] = []
+  const find = db.prepare('SELECT * FROM whatsapp_conversations WHERE owner_id = ? AND remote_jid = ?')
+  const rename = db.prepare('UPDATE whatsapp_conversations SET display_name = ?, updated_at = ? WHERE id = ?')
+  db.exec('BEGIN')
+  try {
+    for (const contact of contacts) {
+      const name = contact.name.replace(/\s+/g, ' ').trim().slice(0, 120)
+      if (!name || name === contact.phone) continue
+      const row = find.get(ownerId, contact.remoteJid) as unknown as ConversationRow | undefined
+      if (!row || row.display_name === name) continue
+      if (contact.source === 'push' && !isPlaceholderName(row.display_name, row.phone)) continue
+      rename.run(name, now, row.id)
+      changed.push(row.id)
+    }
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  return changed
 }
 
 export function recordOutgoingMessage(input: {

@@ -43,6 +43,8 @@ import {
   setWhatsAppStatus,
   startWhatsAppChatEvents,
   stopWhatsAppChatEvents,
+  isWhatsAppPlaceholderOnly,
+  whatsappBodyLabel,
   whatsappChats,
   whatsappShell,
 } from '../lib/whatsapp'
@@ -263,7 +265,7 @@ async function translateIncoming(): Promise<void> {
   if (!incomingOn.value) return
   const run = ++incomingRun
   const todo = chats.messages
-    .filter((m) => m.direction === 'in' && m.body.trim() && !(m.id in incomingText.value))
+    .filter((m) => m.direction === 'in' && m.body.trim() && !isWhatsAppPlaceholderOnly(m.body) && !(m.id in incomingText.value))
     .slice(-20)
   for (const m of todo) {
     try {
@@ -487,8 +489,19 @@ function conversationName(conversation: WhatsAppConversation): string {
 function conversationPreview(conversation: WhatsAppConversation): string {
   const text = conversation.lastMessagePreview?.trim()
   if (!text) return t('whatsapp.chatNoPreview')
-  return `${conversation.lastMessageDirection === 'out' ? t('whatsapp.chatYouPrefix') : ''}${text}`
+  return `${conversation.lastMessageDirection === 'out' ? t('whatsapp.chatYouPrefix') : ''}${whatsappBodyLabel(text, t)}`
 }
+
+/** 历史同步进度：绑定后自动导入近 3 个月聊天记录 */
+const historyText = computed(() => {
+  const history = status.value?.history
+  if (!history) return ''
+  const count = history.imported
+  if (history.state === 'done') return t('whatsapp.historyDone', { count })
+  return history.progress !== null && history.progress < 100
+    ? t('whatsapp.historySyncingProgress', { count, progress: Math.round(history.progress) })
+    : t('whatsapp.historySyncing', { count })
+})
 
 
 function sameDay(a: number, b: number): boolean {
@@ -1449,6 +1462,14 @@ async function dismissDraft(): Promise<void> {
               <option value="unread">{{ $t('whatsapp.sortUnread') }}</option>
             </select>
           </div>
+          <p
+            v-if="historyText && status?.history?.state === 'syncing'"
+            class="wa-history-sync"
+            role="status"
+            data-testid="whatsapp-history-sync"
+          >
+            {{ historyText }}
+          </p>
           <div class="wa-list-tabs" role="tablist" :aria-label="$t('whatsapp.chatListTitle')">
             <button
               v-for="f in LIST_TABS"
@@ -1734,7 +1755,7 @@ async function dismissDraft(): Promise<void> {
                     :data-status="message.status"
                   >
                     <div class="wa-bubble">
-                      <p class="wa-bubble-body" dir="auto">{{ message.body }}</p>
+                      <p class="wa-bubble-body" dir="auto">{{ whatsappBodyLabel(message.body, t) }}</p>
                       <p
                         v-if="incomingOn && message.direction === 'in' && incomingText[message.id]"
                         class="wa-bubble-trans"
@@ -2026,6 +2047,7 @@ async function dismissDraft(): Promise<void> {
                       <dd>{{ timeText(account?.lastActivityAt) }}</dd>
                     </div>
                   </dl>
+                  <p v-if="historyText" class="wa-note" role="status" data-testid="whatsapp-history-status">{{ historyText }}</p>
                   <p class="wa-note">{{ $t('whatsapp.heartbeatNote') }}</p>
                   <p class="wa-footnote">{{ $t('whatsapp.bindingOnlyNote') }}</p>
                   <div class="wa-actions">
@@ -2774,6 +2796,15 @@ async function dismissDraft(): Promise<void> {
 
 .wa-chat-list-head .kbtn {
   flex: none;
+}
+
+.wa-history-sync {
+  flex: none;
+  margin: 0;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line-faint);
+  color: var(--text-secondary);
+  font-size: 11.5px;
 }
 
 .wa-conv-scroll {

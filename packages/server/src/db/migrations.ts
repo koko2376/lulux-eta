@@ -1570,6 +1570,18 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    // WhatsApp 历史同步：按引擎消息 id 去重要走索引（绑定时一次导入近 90 天，消息量大）。
+    version: 41,
+    name: "whatsapp_message_engine_id_index",
+    up(db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_engine
+          ON whatsapp_messages(conversation_id, engine_message_id)
+          WHERE engine_message_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 export interface MigrationOptions {

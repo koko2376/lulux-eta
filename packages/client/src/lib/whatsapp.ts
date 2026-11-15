@@ -489,9 +489,49 @@ export function setWhatsAppStatus(status: WhatsAppStatus | null): void {
   const justConnected =
     Boolean(status) && connection === 'connected' && previousConnection !== 'connected'
   previousConnection = status ? connection : null
-  if (justConnected && !whatsappChats.conversationsLoaded && !whatsappChats.conversationsLoading) {
+  // 历史同步完成：整页重拉一次，排序 / 计数与服务端一致
+  const historyState = status?.history?.state ?? null
+  const historyDone = historyState === 'done' && previousHistoryState === 'syncing'
+  previousHistoryState = historyState
+  if (historyDone && whatsappChats.conversationsLoaded) {
+    void loadWhatsAppConversations().catch(() => undefined)
+    refreshWhatsAppCounts()
+  } else if (justConnected && !whatsappChats.conversationsLoaded && !whatsappChats.conversationsLoading) {
     void loadWhatsAppConversations().catch(() => undefined)
   }
+}
+
+let previousHistoryState: 'syncing' | 'done' | null = null
+
+/** 非文本消息在库里是英文占位标签（如 `[Image] 说明`）；这里换成界面语言 */
+const BODY_LABELS: Record<string, string> = {
+  Image: 'mediaImage',
+  Video: 'mediaVideo',
+  GIF: 'mediaGif',
+  'Voice message': 'mediaVoice',
+  Audio: 'mediaAudio',
+  Document: 'mediaDocument',
+  Sticker: 'mediaSticker',
+  Location: 'mediaLocation',
+  'Live location': 'mediaLiveLocation',
+  'Contact card': 'mediaContact',
+  Poll: 'mediaPoll',
+  'Unsupported message': 'mediaUnsupported',
+}
+const BODY_LABEL_RE = /^\[(Image|Video|GIF|Voice message|Audio|Document|Sticker|Location|Live location|Contact card|Poll|Unsupported message)(?:: ([^\]]*))?\]( [\s\S]*)?$/
+
+export function whatsappBodyLabel(body: string, t: (key: string) => string): string {
+  const match = BODY_LABEL_RE.exec(body)
+  if (!match) return body
+  const label = t(`whatsapp.${BODY_LABELS[match[1]!]}`)
+  const detail = match[2] ? `: ${match[2]}` : ''
+  return `[${label}${detail}]${match[3] ?? ''}`
+}
+
+/** 只有占位标签、没有文字（不需要翻译） */
+export function isWhatsAppPlaceholderOnly(body: string): boolean {
+  const match = BODY_LABEL_RE.exec(body.trim())
+  return Boolean(match && !match[3]?.trim())
 }
 
 /** 拉取一次服务端状态；并发触发时只认最后一次。失败时保留上一份状态。 */

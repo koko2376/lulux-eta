@@ -37,6 +37,9 @@ import {
   openConversation as openStoredConversation,
   recordIncomingMessage,
   recordOutgoingMessage,
+  applyContactNames,
+  importSyncedMessages,
+  type SyncedChatState,
   type WhatsAppConversationPage,
   type WhatsAppMessagePage,
 } from './store.js'
@@ -48,7 +51,12 @@ import {
   type TranslatorTargetLanguage,
 } from './translator.js'
 import {
+  WA_HISTORY_DAYS,
   WHATSAPP_RECONNECT_DELAYS,
+  type WhatsAppContactName,
+  type WhatsAppHistoryBatch,
+  type WhatsAppHistorySync,
+  type WhatsAppIncomingMessage,
   type WhatsAppAccountInfo,
   type WhatsAppConversation,
   type WhatsAppConversationCounts,
@@ -78,6 +86,10 @@ export class WhatsAppService {
   private ownerOrgId: string | null = null
   private reconnectAttempts = 0
   private reconnectTimer: NodeJS.Timeout | null = null
+  /** 历史同步：批次串行处理；空闲一段时间或进度到 100 视为完成 */
+  private historyQueue: Promise<void> = Promise.resolve()
+  private history: WhatsAppHistorySync | null = null
+  private historyIdleTimer: NodeJS.Timeout | null = null
 
   constructor(
     readonly accountId: string = DEFAULT_ACCOUNT_ID,
@@ -206,6 +218,7 @@ export class WhatsAppService {
         pairing: null,
         reconnect: null,
         error: null,
+        history: null,
       }
     }
     if (this.ownerId === actor.id && !this.ownerOrgId) this.ownerOrgId = actor.orgId
@@ -343,6 +356,10 @@ export class WhatsAppService {
   }
 
   private async disposeAdapter(): Promise<void> {
+    // 连接断开时正在进行的历史同步按已导入的结果收尾
+    if (this.history?.state === 'syncing') this.finishHistory()
+    if (this.historyIdleTimer) clearTimeout(this.historyIdleTimer)
+    this.historyIdleTimer = null
     const adapter = this.adapter
     const unlisten = this.unlisten
     this.adapter = null
@@ -722,6 +739,10 @@ export class WhatsAppService {
       }
       case 'message': {
         if (!this.ownerId) break
+        if (event.message.fromMe) {
+          this.recordOwnMessage(event.message)
+          break
+        }
         try {
           const result = recordIncomingMessage({
             ...event.message,
@@ -735,6 +756,12 @@ export class WhatsAppService {
         }
         break
       }
+      case 'history':
+        this.enqueueHistory(event.batch)
+        break
+      case 'contacts':
+        this.applyContacts(event.contacts)
+        break
       case 'close':
         this.handleClose(event)
         break
@@ -743,6 +770,124 @@ export class WhatsAppService {
         this.publish()
         break
     }
+  }
+
+  /** 自己从手机 / 其他设备发出的消息：方向 out，已发送；不累加未读 */
+  private recordOwnMessage(message: WhatsAppIncomingMessage): void {
+    if (!this.ownerId) return
+    try {
+      const result = importSyncedMessages({
+        ownerId: this.ownerId,
+        orgId: this.ownerOrgId ?? 'local',
+        messages: [message],
+        cutoff: Date.now() - WA_HISTORY_DAYS * 86_400_000,
+        live: true,
+        collect: true,
+      })
+      for (const item of result.messages) this.publishMessage(item)
+      for (const id of result.conversationIds) {
+        const conversation = findConversation(this.ownerId, id)
+        if (conversation) this.publishConversation(conversation)
+      }
+    } catch (error) {
+      logger.warn('whatsapp own message persist failed', { message: errorMessage(error) })
+    }
+  }
+
+  private applyContacts(contacts: WhatsAppContactName[]): void {
+    if (!this.ownerId || !contacts.length) return
+    try {
+      for (const id of applyContactNames(this.ownerId, contacts)) {
+        const conversation = findConversation(this.ownerId, id)
+        if (conversation) this.publishConversation(conversation)
+      }
+    } catch (error) {
+      logger.warn('whatsapp contact names failed', { message: errorMessage(error) })
+    }
+  }
+
+  /** 历史批次串行处理，避免两批交错写同一会话 */
+  private enqueueHistory(batch: WhatsAppHistoryBatch): void {
+    if (!this.ownerId) return
+    const now = Date.now()
+    if (!this.history || this.history.state === 'done') {
+      this.history = { state: 'syncing', imported: 0, progress: null, days: WA_HISTORY_DAYS, startedAt: now, finishedAt: null }
+      this.state.setHistory(this.history)
+      this.publish()
+    }
+    this.armHistoryIdle()
+    this.historyQueue = this.historyQueue
+      .then(() => this.importHistory(batch))
+      .catch((error: unknown) => {
+        logger.warn('whatsapp history import failed', { message: errorMessage(error) })
+      })
+  }
+
+  /** 等待当前排队的历史批次处理完（测试与停止时用） */
+  historyIdle(): Promise<void> {
+    return this.historyQueue
+  }
+
+  private armHistoryIdle(): void {
+    if (this.historyIdleTimer) clearTimeout(this.historyIdleTimer)
+    this.historyIdleTimer = setTimeout(() => {
+      this.historyIdleTimer = null
+      void this.historyQueue.then(() => this.finishHistory())
+    }, WHATSAPP_HISTORY_IDLE_MS)
+    this.historyIdleTimer.unref?.()
+  }
+
+  private finishHistory(): void {
+    if (!this.history || this.history.state === 'done') return
+    if (this.historyIdleTimer) clearTimeout(this.historyIdleTimer)
+    this.historyIdleTimer = null
+    this.history = { ...this.history, state: 'done', finishedAt: Date.now() }
+    this.state.setHistory(this.history)
+    this.publish()
+    logger.info('whatsapp history sync done', { imported: this.history.imported })
+  }
+
+  private async importHistory(batch: WhatsAppHistoryBatch): Promise<void> {
+    const ownerId = this.ownerId
+    if (!ownerId) return
+    const orgId = this.ownerOrgId ?? 'local'
+    const chats = new Map<string, SyncedChatState>()
+    for (const chat of batch.chats) chats.set(chat.remoteJid, { name: chat.name, unreadCount: chat.unreadCount, archived: chat.archived })
+    const cutoff = Date.now() - WA_HISTORY_DAYS * 86_400_000
+    // 旧消息先写，最后一条消息自然前移；分块写入、块间让出事件循环
+    const messages = [...batch.messages].sort((a, b) => a.timestamp - b.timestamp)
+    const touched = new Set<string>()
+    for (let offset = 0; offset < messages.length || offset === 0; offset += WHATSAPP_HISTORY_CHUNK) {
+      if (this.ownerId !== ownerId) return
+      const chunk = messages.slice(offset, offset + WHATSAPP_HISTORY_CHUNK)
+      const result = importSyncedMessages({ ownerId, orgId, messages: chunk, cutoff, chats })
+      for (const id of result.conversationIds) touched.add(id)
+      if (this.history) {
+        this.history = { ...this.history, imported: this.history.imported + result.inserted }
+        this.state.setHistory(this.history)
+      }
+      if (offset + WHATSAPP_HISTORY_CHUNK < messages.length) {
+        this.publish()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      if (!messages.length) break
+    }
+    for (const id of applyContactNames(ownerId, [
+      ...batch.chats.filter((chat) => chat.name).map((chat) => ({ remoteJid: chat.remoteJid, phone: chat.phone, name: chat.name!, source: 'contact' as const })),
+      ...batch.contacts,
+    ])) {
+      touched.add(id)
+    }
+    for (const id of touched) {
+      const conversation = findConversation(ownerId, id)
+      if (conversation) this.publishConversation(conversation)
+    }
+    if (this.history && batch.progress !== null) {
+      this.history = { ...this.history, progress: batch.progress }
+      this.state.setHistory(this.history)
+    }
+    this.publish()
+    if (batch.progress !== null && batch.progress >= 100) this.finishHistory()
   }
 
   private handleClose(event: Extract<WhatsAppEngineEvent, { type: 'close' }>): void {
@@ -901,6 +1046,10 @@ function validateMessageText(raw: string): string {
   }
   return text
 }
+
+/** 历史同步：每块写入的消息数；多久没有新批次视为同步完成（测试可用环境变量缩短） */
+const WHATSAPP_HISTORY_CHUNK = 200
+const WHATSAPP_HISTORY_IDLE_MS = Number(process.env.LULUX_WHATSAPP_HISTORY_IDLE_MS) > 0 ? Number(process.env.LULUX_WHATSAPP_HISTORY_IDLE_MS) : 20_000
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
